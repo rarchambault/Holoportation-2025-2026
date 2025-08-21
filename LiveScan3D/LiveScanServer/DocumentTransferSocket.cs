@@ -29,47 +29,35 @@ namespace LiveScanServer
     {
         public DocumentTransferSocket(TcpClient clientSocket) : base(clientSocket) { }
 
-        public void SendDocument(List<byte> data, float width, float height)
+        public void SendDocument(List<byte> data, short width, short height)
         {
-            // Receive 1 byte to check that the receiver has requested a new frame
-            byte[] requestBuffer = Receive(1);
-
-            while (requestBuffer.Length != 0)
+            try
             {
-                if (requestBuffer[0] == 0)
+                if (data == null || data.Count == 0 || width == 0 || height == 0)
                 {
-                    try
-                    {
-                        if (data == null || data.Count == 0 || width == 0 || height == 0)
-                        {
-                            return;
-                        }
-
-                        // Encode document data
-                        byte[] dataArray = EncodeToJpeg(data.ToArray(), (int)width, (int)height);
-
-                        if (dataArray == null || dataArray.Length == 0)
-                        {
-                            return;
-                        }
-
-                        // Send width and height of document first
-                        WriteInt((int)width);
-                        WriteInt((int)height);
-
-                        // Write data size
-                        WriteInt(dataArray.Length);
-
-                        // Write actual data
-                        socket.GetStream().Write(dataArray, 0, dataArray.Length);
-                    }
-                    catch (Exception)
-                    {
-                    }
+                    return;
                 }
 
-                // Receive a new request byte to make sure the receiver is ready to receive
-                requestBuffer = Receive(1);
+                // Encode document data
+                byte[] dataArray = EncodeToJpeg(data.ToArray(), width, height);
+
+                if (dataArray == null || dataArray.Length == 0)
+                {
+                    return;
+                }
+
+                // Send width and height of document first
+                WriteShort(width);
+                WriteShort(height);
+
+                // Write data size
+                WriteInt(dataArray.Length);
+
+                // Write actual data
+                socket.GetStream().Write(dataArray, 0, dataArray.Length);
+            }
+            catch (Exception)
+            {
             }
         }
 

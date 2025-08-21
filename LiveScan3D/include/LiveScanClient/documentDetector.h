@@ -25,7 +25,7 @@ public:
     // Type alias for the detection callback
     using DetectionCallback = std::function<void(const DetectionResult&)>;
 
-    DocumentDetector(int deviceIdx);
+    DocumentDetector();
     ~DocumentDetector();
 
     void DocumentDetector::SubmitFrame(std::shared_ptr<ob::ColorFrame> color, cv::Mat depth);
@@ -34,8 +34,8 @@ public:
         const std::shared_ptr<ob::ColorFrame>& colorFrame,
         cv::Mat depthFrame,
         cv::Mat& documentData,
-        float& documentPictureWidth,
-        float& documentPicutreHeight,
+        short& documentPictureWidth,
+        short& documentPicutreHeight,
         float& documentScore
     );
 
@@ -43,9 +43,6 @@ public:
     void SetLogger(std::function<void(const std::string&)> loggerFunc);
 
 private:
-    int counter = 0;
-    int deviceIndex = -1;
-
     std::mutex frameMutex;
     std::condition_variable frameCond;
 

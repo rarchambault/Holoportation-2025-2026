@@ -282,20 +282,21 @@ namespace LiveScanServer
         {
             while (isDocumentServerRunning && !token.IsCancellationRequested)
             {
-                // Send latest document to all connected clients
-                for (int i = 0; i < documentClients.Count; i++)
+                if (DocumentInfo.IsNew)
                 {
-                    // Send a point cloud frame
                     lock (DocumentInfo)
                     {
-                        if (DocumentInfo.IsNew)
+                        // Send latest document to all connected clients
+                        for (int i = 0; i < documentClients.Count; i++)
                         {
                             documentClients[i].SendDocument(DocumentInfo.Data, DocumentInfo.Width, DocumentInfo.Height);
                         }
                     }
+
+                    DocumentInfo.IsNew = false;
                 }
 
-                await Task.Delay(1000);
+                await Task.Delay(100);
             }
         }
     }

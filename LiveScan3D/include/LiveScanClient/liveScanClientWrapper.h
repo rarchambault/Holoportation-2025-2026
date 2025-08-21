@@ -31,7 +31,7 @@ typedef void(*SendLatestFrameCallback)(int clientIndex, const Point3s* vertices,
 typedef void(*SendRecordedFrameCallback)(int clientIndex, const Point3s* vertices, const RGB* colors, int count, bool noMoreFrames);
 typedef void(*ConfirmSyncStateCallback)(int clientIndex, int tempSyncState);
 typedef void(*ConfirmMasterRestartCallback)(int clientIndex);
-typedef void(*SendDocumentCallback)(int clientIndex, const unsigned char* data, float score, float width, float height);
+typedef void(*SendDocumentCallback)(int clientIndex, const unsigned char* data, float score, short width, short height);
 
 struct LiveScanClientWrapper {
 	std::unique_ptr<LiveScanClient> client;

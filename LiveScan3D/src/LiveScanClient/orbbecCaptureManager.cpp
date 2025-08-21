@@ -28,7 +28,7 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 
 OrbbecCaptureManager::OrbbecCaptureManager(int deviceIndex) : deviceIndex(deviceIndex), lastFrameTime(0)
 {
-    documentDetector = std::make_unique<DocumentDetector>(deviceIndex);
+    documentDetector = std::make_unique<DocumentDetector>();
 
     documentDetector->SetDetectionCallback([=](const DetectionResult& result) {
         // Save the new detection result
@@ -36,6 +36,7 @@ OrbbecCaptureManager::OrbbecCaptureManager(int deviceIndex) : deviceIndex(device
         lastDocumentWidth = result.width;
         lastDocumentData = result.data;
         lastDocumentScore = result.score;
+        hasNewDocument = true;
     });
 }
 

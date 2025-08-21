@@ -47,12 +47,11 @@ public:
 private:
     const int SyncDelayUs = 160;
     const int DocumentServerSendDelayMs = 1000;
-    const int CaptureTimeoutMs = 1000;
+    const int CaptureTimeoutMs = 500;
 
     int deviceIndex = 0;
     int deviceIDForRestart = -1;
     int restartAttempts = 0;
-    int counter = 0;
 
     std::shared_ptr<ob::Device> device;
     std::shared_ptr<ob::Pipeline> pipeline;

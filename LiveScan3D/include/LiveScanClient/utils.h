@@ -123,8 +123,8 @@ typedef struct RGB
 
 typedef struct DetectionResult {
 	cv::Mat data;
-	float width;
-	float height;
+	short width;
+	short height;
 	float score;
 };
 

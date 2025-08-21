@@ -19,6 +19,7 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Windows.Forms;
 
 namespace LiveScanServer
 {
@@ -123,8 +124,6 @@ namespace LiveScanServer
 
         public event ClientListChangedHandler OnClientListChanged;
         public DocumentInfo DocumentInfo = new DocumentInfo();
-
-        private const float DocumentDiffThreshold = 0.9f;
 
         private bool waitForSubordinateStart = false;
 
@@ -591,56 +590,12 @@ namespace LiveScanServer
                     return;
                 }
 
-                List<byte> newDocumentData = new List<byte>(client.DocumentData);
-                float newDocumentScore = client.DocumentScore;
-                float newDocumentWidth = client.DocumentWidth;
-                float newDocumentHeight = client.DocumentHeight;
-
-                // Check if the server has no data yet
-                if (DocumentInfo.Data == null || DocumentInfo.Data.Count == 0)
-                {
-                    DocumentInfo.Data = new List<byte>(newDocumentData);
-                    DocumentInfo.Score = newDocumentScore;
-                    DocumentInfo.Width = newDocumentWidth;
-                    DocumentInfo.Height = newDocumentHeight;
-                    DocumentInfo.IsNew = true;
-                    return;
-                }
-
-                // Compute difference
-                float diff = ComputeImageDifference(newDocumentData);
-
-                // Update if sufficiently different or higher score
-                if (diff > DocumentDiffThreshold || newDocumentScore > DocumentInfo.Score)
-                {
-                    DocumentInfo.Data = new List<byte>(newDocumentData);
-                    DocumentInfo.Score = newDocumentScore;
-                    DocumentInfo.Width = newDocumentWidth;
-                    DocumentInfo.Height = newDocumentHeight;
-                    DocumentInfo.IsNew = true;
-                }
-                else
-                {
-                    DocumentInfo.IsNew = false;
-                }
+                DocumentInfo.Data = new List<byte>(client.DocumentData);
+                DocumentInfo.Score = client.DocumentScore; ;
+                DocumentInfo.Width = client.DocumentWidth; ;
+                DocumentInfo.Height = client.DocumentHeight; ;
+                DocumentInfo.IsNew = true;
             }
-        }
-
-        private float ComputeImageDifference(List<byte> newDocumentData)
-        {
-            if (newDocumentData.Count != DocumentInfo.Data.Count || newDocumentData.Count == 0 || DocumentInfo.Data.Count == 0)
-                return 1.0f; // Completely different if sizes mismatch or empty
-
-            long diffSum = 0;
-            for (int i = 0; i < newDocumentData.Count; i++)
-            {
-                int d = newDocumentData[i] - DocumentInfo.Data[i];
-                diffSum += d * d;
-            }
-
-            // Max diff = each channel could differ by 255
-            double maxDiff = 255.0 * 255.0 * newDocumentData.Count;
-            return (float)(diffSum / maxDiff); // normalized 0..1
         }
 
         // Calls event handler to modify the client list in the main window form

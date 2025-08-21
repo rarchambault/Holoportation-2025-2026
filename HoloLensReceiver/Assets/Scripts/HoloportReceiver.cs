@@ -192,14 +192,11 @@ public class HoloportReceiver : MonoBehaviour
         {
             try
             {
-                // Request a new frame
-                await documentClient.GetStream().WriteAsync(new byte[] { 0 });
-
                 // Read width
-                int width = await ReadIntAsync(documentClient);
+                short width = await ReadShortAsync(documentClient);
 
                 // Read height 
-                int height = await ReadIntAsync(documentClient);
+                short height = await ReadShortAsync(documentClient);
 
                 int dataSize = await ReadIntAsync(documentClient);
 

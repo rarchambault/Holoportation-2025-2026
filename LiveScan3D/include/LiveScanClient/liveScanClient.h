@@ -70,7 +70,8 @@ private:
     const float YRangeCenter = 0.0f;
     const float ZRangeCenter = HalfRange;
 
-    const float DocumentDiffThreshold = 0.99;
+    const float DocumentDiffThreshold = 0.50;
+    const int DocumentSendTimeout = 30000; // In milliseconds
 
     int clientIndex = -1;
     bool isClientThreadRunning;
@@ -108,8 +109,9 @@ private:
 
     cv::Mat lastDocumentData;
     float lastDocumentScore;
-    float lastDocumentWidth;
-    float lastDocumentHeight;
+    short lastDocumentWidth;
+    short lastDocumentHeight;
+    std::chrono::milliseconds lastDocumentSendTime;
 
     Point3f* cameraSpaceCoordinates;
 

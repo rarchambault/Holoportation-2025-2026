@@ -39,8 +39,9 @@ public:
 
 	cv::Mat lastDocumentData;
 	float lastDocumentScore;
-	float lastDocumentWidth;
-	float lastDocumentHeight;
+	short lastDocumentWidth;
+	short lastDocumentHeight;
+	bool hasNewDocument;
 
 	std::string serialNumber;
 

@@ -29,7 +29,7 @@ public class DocumentRenderer : MonoBehaviour
     private bool isStarted = false;
     private float timeSinceLastRender = 0.0f;
 
-    private Queue<(int width, int height, byte[] data)> documentQueue = new();
+    private Queue<(short width, short height, byte[] data)> documentQueue = new();
 
     public void Start()
     {
@@ -48,7 +48,7 @@ public class DocumentRenderer : MonoBehaviour
         xScaleUnitWidth = (1.0f * localScale.x) / currentWorldWidth;
         zScaleUnitHeight = (1.0f * localScale.z) / currentWorldHeight;
 
-        TargetRenderer.material.color = Color.white * 1.5f; // brighten by 50%
+        TargetRenderer.material.color = Color.white * 2.0f; // brighten
         TargetRenderer.enabled = false; // Initially hide the renderer
     }
 
@@ -59,7 +59,7 @@ public class DocumentRenderer : MonoBehaviour
             timeSinceLastRender += Time.deltaTime;
         }
 
-        // If the point cloud queue is not empty, render its first entry
+        // If the document queue is not empty, render its first entry
         if (documentQueue.Count > 0)
         {
             var (width, height, data) = documentQueue.Dequeue();
@@ -73,7 +73,7 @@ public class DocumentRenderer : MonoBehaviour
         }
     }
 
-    public void EnqueueDocument(int width, int height, byte[] data)
+    public void EnqueueDocument(short width, short height, byte[] data)
     {
         isStarted = true;
 
@@ -84,7 +84,7 @@ public class DocumentRenderer : MonoBehaviour
         documentQueue.Enqueue((width, height, data));
     }
 
-    public void UpdateMesh(int width, int height, byte[] data)
+    public void UpdateMesh(short width, short height, byte[] data)
     {
         if (data == null || data.Length == 0)
         {
@@ -113,7 +113,7 @@ public class DocumentRenderer : MonoBehaviour
         }
     }
 
-    private void AdjustRendererScale(int width, int height)
+    private void AdjustRendererScale(short width, short height)
     {
         float aspectRatio = (float)width / (float)height;
 

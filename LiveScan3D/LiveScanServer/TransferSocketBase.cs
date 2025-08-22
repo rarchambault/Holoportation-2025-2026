@@ -62,6 +62,11 @@ namespace LiveScanServer
             return buffer;
         }
 
+        protected void WriteShort(short val)
+        {
+            socket.GetStream().Write(BitConverter.GetBytes(val), 0, 2);
+        }
+
         protected void WriteInt(int val)
         {
             socket.GetStream().Write(BitConverter.GetBytes(val), 0, 4);

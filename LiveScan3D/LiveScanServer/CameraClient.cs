@@ -119,7 +119,7 @@ namespace LiveScanServer
         public delegate void ConfirmMasterRestartCallback(int clientIndex);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        public unsafe delegate void SendDocumentCallback(int clientIndex, byte* data, float score, float width, float height);
+        public unsafe delegate void SendDocumentCallback(int clientIndex, byte* data, float score, short width, short height);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void SendDeviceSyncStateCallback(int clientIndex, int syncState);
@@ -149,8 +149,8 @@ namespace LiveScanServer
 
         public List<byte> DocumentData = new List<byte>();
         public float DocumentScore = 0.0f;
-        public float DocumentWidth = 0.0f;
-        public float DocumentHeight = 0.0f;
+        public short DocumentWidth = 0;
+        public short DocumentHeight = 0;
 
         private int clientIndex;
         private IntPtr clientHandle;
@@ -414,13 +414,13 @@ namespace LiveScanServer
 
         public unsafe void SetSendDocumentCallback(Action<int> callback)
         {
-            sendDocumentCallback = new SendDocumentCallback((int index, byte* data, float score, float width, float height) =>
+            sendDocumentCallback = new SendDocumentCallback((int index, byte* data, float score, short width, short height) =>
             {
                 DocumentData.Clear();
-                DocumentData.Capacity = (int)width * (int)height * 3; // pre-allocate for speed
+                DocumentData.Capacity = width * height * 3; // pre-allocate for speed
 
                 // Copy raw bytes into managed List<byte>
-                for (int i = 0; i < (int)width * (int)height * 3; i++)
+                for (int i = 0; i < width * height * 3; i++)
                 {
                     DocumentData.Add(data[i]);
                 }

@@ -197,8 +197,8 @@ namespace LiveScanServer
     {
         public List<byte> Data { get; set; } = new List<byte>();
         public float Score { get; set; }
-        public float Width { get; set; }
-        public float Height { get; set; }
+        public short Width { get; set; }
+        public short Height { get; set; }
         public bool IsNew { get; set; }
     }
 

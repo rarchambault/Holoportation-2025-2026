@@ -357,7 +357,12 @@ void LiveScanClient::UpdateFrame()
 	ProcessFrame();
 
 	// Process the document data from the frame
-	ProcessDocument();
+	if (captureManager->hasNewDocument) 
+	{
+		ProcessDocument();
+		captureManager->hasNewDocument = false;
+	}
+	
 
 	if (isRecordFrameRequested)
 	{
@@ -541,8 +546,8 @@ void LiveScanClient::ProcessDocument()
 
 	cv::Mat newDocumentData = captureManager->lastDocumentData;
 	float newDocumentScore = captureManager->lastDocumentScore;
-	float newDocumentWidth = captureManager->lastDocumentWidth;
-	float newDocumentHeight = captureManager->lastDocumentHeight;
+	short newDocumentWidth = captureManager->lastDocumentWidth;
+	short newDocumentHeight = captureManager->lastDocumentHeight;
 
 	// Check if LiveScanClient has no data yet
 	if (lastDocumentData.empty()) {
@@ -556,13 +561,17 @@ void LiveScanClient::ProcessDocument()
 
 	float diff = ComputeImageDifference(newDocumentData);
 
-	if (diff > DocumentDiffThreshold || newDocumentScore > lastDocumentScore)
+	auto now = std::chrono::steady_clock::now();
+	auto nowMs = std::chrono::time_point_cast<std::chrono::milliseconds>(now).time_since_epoch().count();
+
+	if (nowMs - lastDocumentSendTime.count() >= DocumentSendTimeout || diff > DocumentDiffThreshold || newDocumentScore > lastDocumentScore)
 	{
 		lastDocumentData = newDocumentData;
 		lastDocumentScore = newDocumentScore;
 		lastDocumentWidth = newDocumentWidth;
 		lastDocumentHeight = newDocumentHeight;
 		isSendDocumentRequested = true;
+		lastDocumentSendTime = std::chrono::milliseconds(nowMs);
 	}
 }
 

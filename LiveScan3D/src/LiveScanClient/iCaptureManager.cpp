@@ -28,6 +28,8 @@ ICaptureManager::ICaptureManager()
 
 	depthData = NULL;
 	colorData = NULL;
+
+	hasNewDocument = false;
 }
 
 ICaptureManager::~ICaptureManager()

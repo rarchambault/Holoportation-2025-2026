@@ -13,10 +13,8 @@ provided color frame and ranks its detections based on their size and blur.
 
 #include "documentDetector.h"
 
-DocumentDetector::DocumentDetector(int deviceIdx)
+DocumentDetector::DocumentDetector()
 {
-    deviceIndex = deviceIdx;
-
     StartDetectionThread();
 }
 
@@ -83,7 +81,8 @@ void DocumentDetector::StartDetectionThread()
 
             // Try to detect a document from the frame
             cv::Mat data;
-            float score = 0.0f, width = 0.0f, height = 0.0f;
+            float score = 0.0f;
+            short width = 0, height = 0;
             bool found = Detect(localColor, localDepth, data, width, height, score);
 
             // Call the detection callback if a document has been detected
@@ -128,8 +127,8 @@ bool DocumentDetector::Detect(
     const std::shared_ptr<ob::ColorFrame>& colorFrame,
     cv::Mat depthMat,
     cv::Mat& documentData,
-    float& documentPictureWidth,
-    float& documentPictureHeight,
+    short& documentPictureWidth,
+    short& documentPictureHeight,
     float& bestScore
 )
 {
@@ -137,9 +136,11 @@ bool DocumentDetector::Detect(
     cv::Mat originalImage(colorFrame->height(), colorFrame->width(), CV_8UC3, colorFrame->data());
     cv::cvtColor(originalImage, originalImage, cv::COLOR_BGR2RGB);
 
+    // Resize image to match the resolution of the depth frame for detection
     cv::Mat resizedImage;
     cv::resize(originalImage, resizedImage, depthMat.size());
 
+    // Compute the average depth of the background over several samples
     if (numBackgroundSamples < numRequiredBackgroundSamples)
     {
         backgroundDepthSamples.push_back(depthMat.clone());
@@ -193,7 +194,6 @@ bool DocumentDetector::Detect(
 
     // Create a mask where depth has changed significantly (i.e., foreground)
     cv::Mat mask = cv::Mat::zeros(resizedImage.size(), CV_8U);
-    cv::Mat depthForegroundMask = cv::Mat::zeros(resizedImage.size(), CV_8U);
 
     for (int y = 0; y < resizedImage.rows; ++y) {
         for (int x = 0; x < resizedImage.cols; ++x) {
@@ -204,7 +204,7 @@ bool DocumentDetector::Detect(
             bool isDepthForeground = depthDiff > 15 || (bgDepth == 0 && depthDiff < -15);
 
             if (isDepthForeground) {
-                depthForegroundMask.at<uint8_t>(y, x) = 255;
+                mask.at<uint8_t>(y, x) = 255;
             }
         }
     }
@@ -212,11 +212,16 @@ bool DocumentDetector::Detect(
     // Depth mask pre-processing
     // Erode then dilate to clean up small noise
     cv::Mat morphKernelDepth = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5,5));
-    cv::morphologyEx(depthForegroundMask, depthForegroundMask, cv::MORPH_OPEN, morphKernelDepth); // Cleans small noise
-    cv::morphologyEx(depthForegroundMask, depthForegroundMask, cv::MORPH_CLOSE, morphKernelDepth); // Fills small holes in objects
+    cv::morphologyEx(mask, mask, cv::MORPH_OPEN, morphKernelDepth); // Cleans small noise
+    cv::morphologyEx(mask, mask, cv::MORPH_CLOSE, morphKernelDepth); // Fills small holes in objects
 
     // Apply mask: set color to black for masked pixels
-    resizedImage.setTo(cv::Scalar(0, 0, 0), depthForegroundMask == 0);
+    resizedImage.setTo(cv::Scalar(0, 0, 0), mask == 0);
+
+    // Apply mask to original image too for cropping
+    cv::Mat resizedMask;
+    cv::resize(mask, resizedMask, originalImage.size());
+    originalImage.setTo(cv::Scalar(0, 0, 0), resizedMask == 0);
 
     // Preprocess: Convert to grayscale and blur slightly
     cv::Mat gray;
@@ -251,7 +256,7 @@ bool DocumentDetector::Detect(
 
         // Approximate contour to polygon
         std::vector<cv::Point> approx;
-        cv::approxPolyDP(contour, approx, cv::arcLength(contour, true) * 0.018, true);
+        cv::approxPolyDP(contour, approx, cv::arcLength(contour, true) * 0.017, true);
 
         // Check for quadrilaterals
         if (approx.size() == 4 && cv::isContourConvex(approx)) {
@@ -259,13 +264,16 @@ bool DocumentDetector::Detect(
 
             cv::Rect boundingBox = cv::boundingRect(approx);
             float areaRatio = static_cast<float>(boundingBox.area()) / imageArea;
-            if (boundingBox.area() < imageArea * 0.01)
+
+            // Skip images that represent a portion too large or too small of the original image
+            if (boundingBox.area() < imageArea * 0.01 || boundingBox.area() > imageArea * 0.9)
             {
                 continue;
             }
             
             float aspectRatio = static_cast<float>(boundingBox.width) / boundingBox.height;
             
+            // Skip images that have bas aspect ratios
             if (aspectRatio < 0.5f || aspectRatio > 2.0f)
             {
                 continue;
@@ -283,7 +291,7 @@ bool DocumentDetector::Detect(
             // Crop image
             cv::Mat cropped = originalImage(origBox).clone();
 
-            // Sharpness score
+            // Compute sharpness score
             cv::Mat croppedGray;
             cv::cvtColor(cropped, croppedGray, cv::COLOR_RGB2GRAY);
             cv::Mat lap;

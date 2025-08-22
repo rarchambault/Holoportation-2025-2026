@@ -89,11 +89,6 @@ public class PointCloudRenderer : MonoBehaviour
     {
         int pointCount = Mathf.Min(positions.Length, colorData.Length);
 
-        if (pointCount == 0)
-        {
-            return;
-        }
-
         // Find the level of precision of the point cloud from the scale that was sent
         float precision = 1.0f / scale;
 

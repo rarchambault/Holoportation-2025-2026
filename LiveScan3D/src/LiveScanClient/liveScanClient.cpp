@@ -28,6 +28,10 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 #include <chrono>
 #include <iomanip>
 #include <sstream>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl/surface/gp3.h>
+
 
 LiveScanClient::LiveScanClient(int index) :
 	clientIndex(index),
@@ -446,12 +450,15 @@ void LiveScanClient::ProcessFrame()
 				allVertices[vertexIndex] = invalidPoint;
 				continue;
 			}
+			/*
 			// Only keep the point if there is not already data for the same reduced point when considering the range
 			else if (!voxelGridFilter.Insert(temp.X, temp.Y, temp.Z))
 			{
-				allVertices[vertexIndex] = invalidPoint;
+				allVertices[vertexIndex] = invalidPoint;c
 				continue;
-			}
+			}*/
+
+			voxelGridFilter.Insert(temp.X, temp.Y, temp.Z);
 		}
 
 		allVertices[vertexIndex] = temp;
@@ -460,7 +467,7 @@ void LiveScanClient::ProcessFrame()
 
 	// Apply simple voxel density-based filter
 	const float voxelSize = 0.006f;
-	const int minPointsPerVoxel = 12;
+	const int minPointsPerVoxel = 0;
 
 	// Count points per voxel
 	std::map<uint64_t, int> voxelCounts;

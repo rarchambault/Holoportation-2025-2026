@@ -179,7 +179,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(SolutionDir)\include\LiveScanClient;$(SolutionDir)\include\libobsensor;$(SolutionDir)\include\onnxruntime;$(SolutionDir)\include;$(ProjectDir)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\include\LiveScanClient;$(SolutionDir)\include\libobsensor;$(SolutionDir)\include\onnxruntime;$(SolutionDir)\include;$(ProjectDir);</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_UNICODE;UNICODE;_WINSOCK_DEPRACATED_NO_WARNINGS;_WINDOWS;WIN32%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <OpenMPSupport>true</OpenMPSupport>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
@@ -189,7 +189,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalDependencies>opencv_world320.lib;OrbbecSDK.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(SolutionDir)lib;$(SolutionDir)lib\Orbbec;$(SolutionDir)lib\OpenCV</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(SolutionDir)lib;$(SolutionDir)lib\Orbbec;$(SolutionDir)lib\OpenCV;$</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

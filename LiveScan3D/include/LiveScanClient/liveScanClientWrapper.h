@@ -33,6 +33,14 @@ typedef void(*ConfirmSyncStateCallback)(int clientIndex, int tempSyncState);
 typedef void(*ConfirmMasterRestartCallback)(int clientIndex);
 typedef void(*SendDocumentCallback)(int clientIndex, const unsigned char* data, float score, short width, short height);
 
+typedef void(*SendLatestMeshCallback)(
+	int clientIndex,
+	const float* vertices,     
+	int vertexCount,
+	const int* indices,        
+	int indexCount
+	);
+
 struct LiveScanClientWrapper {
 	std::unique_ptr<LiveScanClient> client;
 	std::thread thread;
@@ -45,4 +53,5 @@ struct LiveScanClientWrapper {
 	ConfirmSyncStateCallback confirmSyncStateCallback = nullptr;
 	ConfirmMasterRestartCallback confirmMasterRestartCallback = nullptr;
 	SendDocumentCallback sendDocumentCallback = nullptr;
+	SendLatestMeshCallback sendLatestMeshCallback = nullptr;
 };

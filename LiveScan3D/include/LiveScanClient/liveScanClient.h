@@ -106,6 +106,9 @@ private:
 
     std::vector<Point3s> lastFrameVertices;
     std::vector<RGB> lastFrameColors;
+    std::vector<float> lastFrameMeshVertices;
+    std::vector<int> lastFrameMeshIndices;
+
 
     cv::Mat lastDocumentData;
     float lastDocumentScore;

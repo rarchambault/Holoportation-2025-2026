@@ -165,6 +165,7 @@ void LiveScanClient::RequestRecordedFrame()
 void LiveScanClient::RequestLatestFrame()
 {
 	SendLatestFrame();
+	SendLatestMesh();
 }
 
 void LiveScanClient::ReceiveCalibration(const AffineTransform& transform)
@@ -454,7 +455,7 @@ void LiveScanClient::ProcessFrame()
 			// Only keep the point if there is not already data for the same reduced point when considering the range
 			else if (!voxelGridFilter.Insert(temp.X, temp.Y, temp.Z))
 			{
-				allVertices[vertexIndex] = invalidPoint;c
+				allVertices[vertexIndex] = invalidPoint;
 				continue;
 			}*/
 
@@ -542,6 +543,71 @@ void LiveScanClient::ProcessFrame()
 
 	lastFrameVertices = goodVerticesShort;
 	lastFrameColors = goodColorPoints;
+
+	using pcl::PointCloud;
+	using pcl::PointXYZ;
+	using pcl::GreedyProjectionTriangulation;
+	using pcl::search::KdTree;
+
+	// Convert into PCL point cloud
+	pcl::PointCloud<PointXYZ>::Ptr cloud(new pcl::PointCloud<PointXYZ>());
+	cloud->reserve(goodVertices.size());
+
+	for (auto& p : goodVertices)
+		cloud->push_back(PointXYZ(p.X, p.Y, p.Z));
+
+	// Normal estimation
+	pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>());
+	pcl::NormalEstimation<PointXYZ, pcl::Normal> ne;
+	ne.setInputCloud(cloud);
+	pcl::search::KdTree<PointXYZ>::Ptr tree(new pcl::search::KdTree<PointXYZ>());
+	ne.setSearchMethod(tree);
+	ne.setKSearch(20);
+	ne.compute(*normals);
+
+	// Combine xyz + normal
+	pcl::PointCloud<pcl::PointNormal>::Ptr cloudWithNormals(new pcl::PointCloud<pcl::PointNormal>());
+	pcl::concatenateFields(*cloud, *normals, *cloudWithNormals);
+
+	// Triangulation
+	pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
+	pcl::PolygonMesh mesh;
+
+	gp3.setSearchRadius(0.02f);
+	gp3.setMu(2.5f);
+	gp3.setMaximumNearestNeighbors(50);
+	gp3.setMaximumSurfaceAngle(M_PI / 4);
+	gp3.setMinimumAngle(M_PI / 18);
+	gp3.setMaximumAngle(2 * M_PI / 3);
+	gp3.setNormalConsistency(false);
+
+	gp3.setInputCloud(cloudWithNormals);
+	gp3.setSearchMethod(KdTree<pcl::PointNormal>::Ptr(new KdTree<pcl::PointNormal>()));
+	gp3.reconstruct(mesh);
+
+	// Convert mesh to float arrays for Unity (xyz + triangle indices)
+	lastFrameMeshVertices.clear();
+	lastFrameMeshIndices.clear();
+
+	pcl::PointCloud<pcl::PointXYZ> meshVerts;
+	pcl::fromPCLPointCloud2(mesh.cloud, meshVerts);
+
+	for (auto& v : meshVerts.points)
+	{
+		lastFrameMeshVertices.push_back(v.x);
+		lastFrameMeshVertices.push_back(v.y);
+		lastFrameMeshVertices.push_back(v.z);
+	}
+
+	for (const auto& poly : mesh.polygons)
+	{
+		if (poly.vertices.size() == 3)
+		{
+			lastFrameMeshIndices.push_back(poly.vertices[0]);
+			lastFrameMeshIndices.push_back(poly.vertices[1]);
+			lastFrameMeshIndices.push_back(poly.vertices[2]);
+		}
+	}
 }
 
 void LiveScanClient::ProcessDocument()
@@ -663,6 +729,22 @@ void LiveScanClient::SendLatestFrame()
 		}
 
 		wrapper->sendLatestFrameCallback(clientIndex, lastFrameVertices.data(), lastFrameColors.data(), count);
+	}
+
+
+}
+
+void LiveScanClient::SendLatestMesh()
+{
+	if (wrapper && wrapper->sendLatestMeshCallback)
+	{
+		wrapper->sendLatestMeshCallback(
+			clientIndex,
+			lastFrameMeshVertices.data(),
+			(int)lastFrameMeshVertices.size(),
+			lastFrameMeshIndices.data(),
+			(int)lastFrameMeshIndices.size()
+		);
 	}
 }
 

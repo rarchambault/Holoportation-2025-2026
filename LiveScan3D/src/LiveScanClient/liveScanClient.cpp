@@ -599,9 +599,9 @@ float LiveScanClient::ComputeImageDifference(cv::Mat& newDocumentData)
 	cv::cvtColor(diff, grayDiff, cv::COLOR_BGR2GRAY);
 
 	// Compute mean difference
-	double meanDiff = cv::mean(grayDiff)[0]; // average intensity difference (0–255)
+	double meanDiff = cv::mean(grayDiff)[0]; // average intensity difference (0?55)
 
-	// Normalize to 0.0–1.0
+	// Normalize to 0.0?.0
 	float normalizedDiff = static_cast<float>(meanDiff / 255.0);
 
 	// Update stored frame

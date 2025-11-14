@@ -35,9 +35,7 @@ typedef void(*SendDocumentCallback)(int clientIndex, const unsigned char* data, 
 
 typedef void(*SendLatestMeshCallback)(
 	int clientIndex,
-	const float* vertices,     
-	int vertexCount,
-	const int* indices,        
+	const int* indices,
 	int indexCount
 	);
 

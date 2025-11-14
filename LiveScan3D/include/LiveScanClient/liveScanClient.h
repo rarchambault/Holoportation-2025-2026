@@ -128,6 +128,7 @@ private:
     void ConfirmRecorded();
     void ConfirmCalibrated();
     void SendLatestFrame();
+    void SendLatestMesh();
     void SendRecordedFrame(vector<Point3s>& vertices, vector<RGB>& RGB, bool noMoreFrames);
     void ConfirmSyncState();
     void ConfirmMasterRestart();

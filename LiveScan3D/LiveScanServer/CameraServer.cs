@@ -182,8 +182,10 @@ namespace LiveScanServer
                 client.SetConfirmSyncStateCallback(OnConfirmSyncState);
                 client.SetConfirmMasterRestartCallback(OnConfirmMasterRestart);
                 client.SetSendDocumentCallback(OnReceiveDocument);
+                //client.SetSendLatestMeshCallback();
                 client.Start();
-                
+
+
                 // Send settings
                 client.SetSettings(cameraSettings);
             }
@@ -454,6 +456,9 @@ namespace LiveScanServer
             }
         }
 
+      
+
+
         /// <summary>
         /// Tells each connected client to clear its internal recorded frame lists
         /// </summary>
@@ -467,6 +472,24 @@ namespace LiveScanServer
                 }
             }
         }
+
+        public void GetMeshIndices(ref List<List<int>> perCamIndices)
+        {
+            int count = perCamIndices.Count;
+            if (perCamIndices.Capacity < count)
+                perCamIndices.Capacity = count;
+
+            perCamIndices.Clear();
+
+            lock (clientLock)
+            {
+                foreach (var client in liveScanClients)
+                {
+                    perCamIndices.Add(client.MeshIndices);
+                }
+            }
+        }
+
 
 
         private void ConfirmSyncDisabled()
@@ -606,5 +629,6 @@ namespace LiveScanServer
                 OnClientListChanged(liveScanClients);
             }
         }
+
     }
 }

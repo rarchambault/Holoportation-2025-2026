@@ -199,3 +199,11 @@ void SetSendDocumentCallback(LiveScanClientHandle handle, SendDocumentCallback c
 	if (wrapper)
 		wrapper->sendDocumentCallback = cb;
 }
+
+//DLL for mesh callback
+void SetSendLatestMeshCallback(LiveScanClientHandle handle, SendLatestMeshCallback cb)
+{
+	auto* wrapper = static_cast<LiveScanClientWrapper*>(handle);
+	if (wrapper)
+		wrapper->sendLatestMeshCallback = cb;
+}

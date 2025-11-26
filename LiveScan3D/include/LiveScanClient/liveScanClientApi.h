@@ -53,4 +53,8 @@ extern "C" {
 	LIVESCAN_API void SetConfirmSyncStateCallback(LiveScanClientHandle handle, ConfirmSyncStateCallback cb);
 	LIVESCAN_API void SetConfirmMasterRestartCallback(LiveScanClientHandle handle, ConfirmMasterRestartCallback cb);
 	LIVESCAN_API void SetSendDocumentCallback(LiveScanClientHandle handle, SendDocumentCallback cb);
+
+	// Mesh related callbacks
+	LIVESCAN_API void SetSendLatestMeshCallback(LiveScanClientHandle handle, SendLatestMeshCallback cb);
+	LIVESCAN_API void RequestLatestMesh(LiveScanClientHandle handle);
 }

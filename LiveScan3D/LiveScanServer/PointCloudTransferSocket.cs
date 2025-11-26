@@ -6,7 +6,12 @@ Authors:      Roxanne Archambault
 Copyright (c) Canadian Space Agency.
 
 <Description>
-This module is the socket used to send point cloud data to connected clients.
+This module is the socket used to send mesh data (vertices + colors + indices)
+to connected clients.
+
+Originally, this class sent a compressed point cloud only (quantized to bytes).
+We now send full-precision floats for vertices and ints for triangle indices,
+so Unity/HoloLens can reconstruct a proper Mesh.
 
 This code was adapted from the following research: 
 Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive 
@@ -23,115 +28,80 @@ namespace LiveScanServer
 {
     public class PointCloudTransferSocket : TransferSocketBase
     {
-        // Set the range and determine the minimal precision to make sure position values fit in a byte
-        private const float Range = 0.3f; // Range of allowed values for each axis, in meters
-        private const float HalfRange = Range / 2.0f;
-        private const float MinPrecision = Range / 255; // Min precision (max resolution) with the range and the range of values in a byte (255)
-
-        // Parameters used to find the scale
-        private const short MinScale = 400;
-        private const short MaxScale = (short)(1 / MinPrecision);
-        private const float ScaleFnOffset = 6700.0f;
-        private const float ScaleFnFactor = -500.0f;
-        private const float xRangeCenter = 0.0f;
-        private const float yRangeCenter = 0.0f;
-        private const float zRangeCenter = HalfRange;
-
         public PointCloudTransferSocket(TcpClient clientSocket) : base(clientSocket) { }
 
-        public void SendPointCloud(List<float> vertices, List<byte> colors)
+        /// <summary>
+        /// Sends a full mesh (vertices + colors + triangle indices) to the client.
+        /// Protocol:
+        ///   [int] vertexCount   (number of float3 vertices = vertices.Count / 3)
+        ///   [int] colorCount    (number of bytes in colors = colors.Count)
+        ///   [int] indexCount    (number of ints in indices = indices.Count)
+        ///
+        ///   [float] * vertexCount * 3   (X, Y, Z per vertex)
+        ///   [byte]  * colorCount        (R, G, B per vertex)
+        ///   [int]   * indexCount        (triangle index buffer)
+        ///
+        /// As before, the receiver must send a 1-byte request (0) to get a new frame.
+        /// </summary>
+        public void SendPointCloud(List<float> vertices, List<byte> colors, List<int> indices)
         {
-            // Receive 1 byte to check that the receiver has requested a new frame
+            // Wait for the client to request a new frame (1-byte handshake).
             byte[] requestBuffer = Receive(1);
 
             while (requestBuffer.Length != 0)
             {
                 if (requestBuffer[0] == 0)
                 {
-                    // Determine the scale (resolution) dynamically based on the number of points
-                    int originalVertexCount = vertices.Count / 3;
-                    short scale = DetermineScale(originalVertexCount);
+                    int vertexCount = vertices.Count / 3;
+                    int colorCount = colors.Count;
+                    int indexCount = indices.Count;
 
-                    // Filter out points which map to the same reduced location once the scale reduction is applied
-                    HashSet<(byte, byte, byte)> uniquePoints = new HashSet<(byte, byte, byte)>();
-                    List<byte> filteredVertices = new List<byte>();
-                    List<byte> filteredColors = new List<byte>();
-
-                    for (int i = 0; i < vertices.Count; i += 3)
+                    // Safety: if colors are less than vertexCount*3, clamp vertexCount
+                    if (colorCount < vertexCount * 3)
                     {
-                        float x = vertices[i];
-                        float y = vertices[i + 1];
-                        float z = vertices[i + 2];
-
-                        // Filter out points which do not fit in the range of values allowed in one byte
-                        if (Math.Abs(x - xRangeCenter) > HalfRange || Math.Abs(xRangeCenter - x) > HalfRange
-                            || Math.Abs(y - yRangeCenter) > HalfRange || Math.Abs(yRangeCenter - y) > HalfRange
-                            || Math.Abs(z - zRangeCenter) > HalfRange || Math.Abs(zRangeCenter - z) > HalfRange)
-                        {
-                            continue;
-                        }
-
-                        // Encode each float position to a byte, using the scale to reduce the resolution
-                        byte bx = EncodeFloatToByte(x, xRangeCenter, scale);
-                        byte by = EncodeFloatToByte(y, yRangeCenter, scale);
-                        byte bz = EncodeFloatToByte(z, zRangeCenter, scale);
-
-                        var point = (bx, by, bz);
-
-                        // If no other point mapped to this reduced position yet, add the point to the filtered result
-                        if (uniquePoints.Add(point))
-                        {
-                            filteredVertices.Add(bx);
-                            filteredVertices.Add(by);
-                            filteredVertices.Add(bz);
-
-                            // Copy corresponding RGB color
-                            int colorIndex = i;
-                            filteredColors.Add(colors[colorIndex]);
-                            filteredColors.Add(colors[colorIndex + 1]);
-                            filteredColors.Add(colors[colorIndex + 2]);
-                        }
+                        vertexCount = colorCount / 3;
                     }
-
-                    int numVerticesToSend = filteredVertices.Count / 3;
-                    byte[] buffer = new byte[sizeof(byte) * filteredVertices.Count];
-                    Buffer.BlockCopy(filteredVertices.ToArray(), 0, buffer, 0, buffer.Length);
 
                     try
                     {
-                        // Send the scale first
-                        byte[] scaleBytes = BitConverter.GetBytes(scale);
-                        socket.GetStream().Write(scaleBytes, 0, scaleBytes.Length);
+                        NetworkStream stream = socket.GetStream();
 
-                        // Send number of vertices
-                        WriteInt(numVerticesToSend);
+                        // --- HEADER ---
+                        // 3 ints: vertexCount, colorCount, indexCount
+                        byte[] header = new byte[sizeof(int) * 3];
+                        Buffer.BlockCopy(BitConverter.GetBytes(vertexCount), 0, header, 0, 4);
+                        Buffer.BlockCopy(BitConverter.GetBytes(colorCount), 0, header, 4, 4);
+                        Buffer.BlockCopy(BitConverter.GetBytes(indexCount), 0, header, 8, 4);
+                        stream.Write(header, 0, header.Length);
 
-                        // Send vertices and colors
-                        socket.GetStream().Write(buffer, 0, buffer.Length);
-                        socket.GetStream().Write(filteredColors.ToArray(), 0, filteredColors.Count);
+                        // --- VERTICES (floats) ---
+                        // Only send the number of vertices that match the clamped vertexCount
+                        int vertsToSendCount = vertexCount * 3;
+                        float[] vertsArray = vertices.ToArray();
+                        byte[] vertsBytes = new byte[vertsToSendCount * sizeof(float)];
+                        Buffer.BlockCopy(vertsArray, 0, vertsBytes, 0, vertsBytes.Length);
+                        stream.Write(vertsBytes, 0, vertsBytes.Length);
+
+                        // --- COLORS (bytes) ---
+                        // We send colorCount bytes (R, G, B per vertex)
+                        byte[] colorsArray = colors.ToArray();
+                        stream.Write(colorsArray, 0, colorCount);
+
+                        // --- INDICES (ints) ---
+                        int[] indexArray = indices.ToArray();
+                        byte[] indexBytes = new byte[indexCount * sizeof(int)];
+                        Buffer.BlockCopy(indexArray, 0, indexBytes, 0, indexBytes.Length);
+                        stream.Write(indexBytes, 0, indexBytes.Length);
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
+                        // You can log if needed
                     }
                 }
 
-                // Receive a new request byte to make sure the receiver is ready to receive
+                // Ask again for the next 1-byte request to know if the client wants another mesh
                 requestBuffer = Receive(1);
             }
-        }
-
-        // Determine scale based on number of vertices
-        private short DetermineScale(int vertexCount)
-        {
-            if (vertexCount <= 0) return MaxScale;
-            short scale = (short)Math.Truncate(ScaleFnOffset + ScaleFnFactor * Math.Log(vertexCount));
-            return Math.Min(MaxScale, Math.Max(scale, MinScale)); // Clamp between min and max acceptable scales
-        }
-
-        private byte EncodeFloatToByte(float value, float rangeCenter, float scale)
-        {
-            float result = (value + HalfRange - rangeCenter) * scale; // Use the computed scale to reduce the resolution
-            return (byte)Math.Min(255, Math.Max(result, 0)); // Clamp between 0 and 255 to make sure it fits in a byte
         }
     }
 }

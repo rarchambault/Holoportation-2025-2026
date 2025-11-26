@@ -693,6 +693,9 @@ void LiveScanClient::ProcessFrame()
 		std::to_string(lastFrameMeshIndices.size() / 3) + " triangles"
 	);
 
+	//notify Unity that a new mesh is ready
+	//SendLatestMesh();
+
 }
 
 void LiveScanClient::ProcessDocument()

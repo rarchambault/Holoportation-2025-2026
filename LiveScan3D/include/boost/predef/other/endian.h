@@ -10,7 +10,7 @@ http://www.boost.org/LICENSE_1_0.txt)
 
 #include <boost/predef/version_number.h>
 #include <boost/predef/make.h>
-#include <boost/predef/library/c/gnu.h>
+#include <boost/predef/lib/c/gnu.h>
 #include <boost/predef/os/macos.h>
 #include <boost/predef/os/bsd.h>
 #include <boost/predef/platform/android.h>

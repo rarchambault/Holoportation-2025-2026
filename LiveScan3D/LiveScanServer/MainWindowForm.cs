@@ -59,6 +59,13 @@ namespace LiveScanServer
         private OpenGLWindow openGLWindow;
         private System.Timers.Timer statusBarTimer = new System.Timers.Timer();
 
+
+        // Mesh indices from all cameras (flattened, global indices)
+        private List<int> meshIndices = new List<int>();
+
+        // Mesh indices from each camera, separated in lists
+        private List<List<int>> cameraMeshIndices = new List<List<int>>();
+
         // Vertices from all of the cameras
         private List<float> vertices = new List<float>();
 
@@ -80,7 +87,7 @@ namespace LiveScanServer
         // Position from each camera
         private List<AffineTransform> cameraPoses = new List<AffineTransform>();
 
-        public MainWindowForm()
+        /*public MainWindowForm()
         {
             // Tries to read the settings from "settings.bin". If it fails, the settings are set to default values.
             try
@@ -106,6 +113,8 @@ namespace LiveScanServer
 
             transferServer.DocumentInfo = cameraServer.DocumentInfo;
 
+            transferServer.MeshIndices = meshIndices;  // ⬅ NEW (you’ll add this property in TransferServer)
+
             InitializeComponent();
 
             // Start the servers
@@ -118,7 +127,75 @@ namespace LiveScanServer
             uint count = ob_device_list_device_count(devList).ToUInt32();
 
             cameraServer.LaunchClients(count);
+        }*/
+
+        public MainWindowForm()
+        {
+            // We wrap everything in a try so we see any managed exception
+            try
+            {
+                // 🔹 1) Load settings (same as before)
+                try
+                {
+                    IFormatter formatter = new System.Runtime.Serialization.Formatters.Binary.BinaryFormatter();
+                    Stream stream = new FileStream("settings.bin", FileMode.Open, FileAccess.Read);
+                    settings = (CameraSettings)formatter.Deserialize(stream);
+                    stream.Close();
+                }
+                catch (Exception)
+                {
+                    // Ignore errors, keep default settings
+                }
+
+                MessageBox.Show("A: Settings loaded (or default)");
+
+                // 🔹 2) Create servers
+                cameraServer = new CameraServer(settings);
+                cameraServer.OnClientListChanged += new ClientListChangedHandler(UpdateListView);
+
+                transferServer = new TransferServer();
+
+                // Share lists with TransferServer (including mesh)
+                transferServer.Vertices = vertices;
+                transferServer.Colors = colors;
+                transferServer.MeshIndices = meshIndices;
+                transferServer.DocumentInfo = cameraServer.DocumentInfo;
+
+                MessageBox.Show("B: CameraServer + TransferServer created, lists shared");
+
+                // 🔹 3) Initialize WinForms UI
+                InitializeComponent();
+                MessageBox.Show("C: After InitializeComponent");
+
+                // 🔹 4) Start TCP servers
+                transferServer.StartPointCloudServer();
+                transferServer.StartDocumentServer();
+                MessageBox.Show("D: TransferServer point cloud + document servers started");
+
+                // 🔹 5) Orbbec: detect devices
+                MessageBox.Show("E: About to call ob_create_context");
+                IntPtr ctx = ob_create_context();
+                MessageBox.Show("F: ob_create_context OK. ctx = " + ctx);
+
+                MessageBox.Show("G: About to call ob_query_device_list");
+                IntPtr devList = ob_query_device_list(ctx);
+                MessageBox.Show("H: ob_query_device_list OK. devList = " + devList);
+
+                uint count = ob_device_list_device_count(devList).ToUInt32();
+                MessageBox.Show("I: ob_device_list_device_count = " + count);
+
+                // 🔹 6) Launch camera clients
+                MessageBox.Show("J: Before cameraServer.LaunchClients(" + count + ")");
+                cameraServer.LaunchClients(count);
+                MessageBox.Show("K: After cameraServer.LaunchClients");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Managed exception in MainWindowForm ctor:\n\n" + ex.ToString());
+            }
         }
+
+
 
         private void CloseForm(object sender, FormClosingEventArgs e)
         {
@@ -283,6 +360,9 @@ namespace LiveScanServer
                 lock (cameraVertices)
                 {
                     cameraServer.GetLatestFrame(ref cameraColors, ref cameraVertices);
+
+                    // NEW: also get per-camera mesh indices
+                    cameraServer.GetMeshIndices(ref cameraMeshIndices);
                 }
 
                 // Update the local lists representing the latest frame
@@ -290,18 +370,39 @@ namespace LiveScanServer
                 {
                     vertices.Clear();
                     colors.Clear();
+                    meshIndices.Clear();    // NEW
                     cameraPoses.Clear();
 
-                    // Add vertices and colors from each camera to the encompassing list
+                    int vertexOffset = 0;   // counts vertices, not floats
+
                     for (int i = 0; i < cameraColors.Count; i++)
                     {
-                        vertices.AddRange(cameraVertices[i]);
-                        colors.AddRange(cameraColors[i]);
+                        var camVerts = cameraVertices[i];
+                        var camColors = cameraColors[i];
+                        var camMeshIndices = (i < cameraMeshIndices.Count) ? cameraMeshIndices[i] : null;
+
+                        // Append this camera's vertices and colors
+                        vertices.AddRange(camVerts);
+                        colors.AddRange(camColors);
+
+                        int camVertexCount = camVerts.Count / 3; // 3 floats per vertex
+
+                        // Rebase and append this camera's mesh indices if present
+                        if (camMeshIndices != null)
+                        {
+                            foreach (var idx in camMeshIndices)
+                            {
+                                meshIndices.Add(idx + vertexOffset);
+                            }
+                        }
+
+                        vertexOffset += camVertexCount;
                     }
 
                     cameraPoses.AddRange(cameraServer.CameraPoses);
                 }
-                
+
+
                 if (openGLWindow != null)
                 {
                     // Note that a new frame was obtained (this is used to estimate the FPS)

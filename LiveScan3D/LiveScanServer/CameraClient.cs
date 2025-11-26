@@ -69,7 +69,12 @@ namespace LiveScanServer
         [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void StartMaster(IntPtr handle);
 
+      
+
+  
+
         #endregion
+
 
         #region Client to server (inbound) call imports
         [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -95,6 +100,9 @@ namespace LiveScanServer
 
         [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void SetSendDocumentCallback(IntPtr handle, SendDocumentCallback callback);
+
+        [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void SetSendLatestMeshCallback(IntPtr handle, SendLatestMeshCallback callback);
 
         // Callback definitions
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -124,6 +132,10 @@ namespace LiveScanServer
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void SendDeviceSyncStateCallback(int clientIndex, int syncState);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public unsafe delegate void SendLatestMeshCallback(int clientIndex, int* indices, int indexCount);
+
+
         #endregion
 
         public bool IsFrameRecorded = false;
@@ -132,6 +144,7 @@ namespace LiveScanServer
         public bool IsRecordedFrameReceived = false;
         public bool NoMoreRecordedFrames = true;
         public bool IsStarted = false;
+
 
         public string SerialNumber = "XXXXXXXXXXX";
         public string ClientState;
@@ -155,6 +168,11 @@ namespace LiveScanServer
         private int clientIndex;
         private IntPtr clientHandle;
 
+        // NEW — Mesh data from C++
+        public List<int> MeshIndices = new List<int>();
+        public bool IsLatestMeshReceived = false;
+
+
         // Callbacks for client to server calls
         private SendSerialNumberCallback sendSerialNumberCallback;
         private ConfirmRecordedCallback confirmRecordedCallback;
@@ -164,6 +182,7 @@ namespace LiveScanServer
         private ConfirmSyncStateCallback confirmSyncStateCallback;
         private ConfirmMasterRestartCallback confirmMasterRestartCallback;
         private SendDocumentCallback sendDocumentCallback;
+        private SendLatestMeshCallback sendLatestMeshCallback;
 
         public CameraClient(int index)
         {
@@ -433,6 +452,26 @@ namespace LiveScanServer
             });
 
             SetSendDocumentCallback(clientHandle, sendDocumentCallback);
+        }
+
+        public unsafe void SetSendLatestMeshCallback()
+        {
+            sendLatestMeshCallback = new SendLatestMeshCallback((int index, int* indices, int indexCount) =>
+            {
+                if (MeshIndices.Capacity < indexCount)
+                    MeshIndices.Capacity = indexCount;
+
+                MeshIndices.Clear();
+
+                for (int i = 0; i < indexCount; i++)
+                {
+                    MeshIndices.Add(indices[i]);
+                }
+
+                IsLatestMeshReceived = true;   // ✅ mark that new mesh arrived
+            });
+
+            SetSendLatestMeshCallback(clientHandle, sendLatestMeshCallback);
         }
 
         public void UpdateSocketState()

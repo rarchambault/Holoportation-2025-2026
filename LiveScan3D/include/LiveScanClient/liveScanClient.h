@@ -108,6 +108,7 @@ private:
     std::vector<RGB> lastFrameColors;
     std::vector<float> lastFrameMeshVertices;
     std::vector<int> lastFrameMeshIndices;
+    int frameCounter = 0;
 
 
     cv::Mat lastDocumentData;

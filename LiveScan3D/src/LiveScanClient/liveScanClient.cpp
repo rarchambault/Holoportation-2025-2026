@@ -33,6 +33,7 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 #include <pcl/surface/gp3.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/search/kdtree.h>
+#include <json.hpp>
 
 
 LiveScanClient::LiveScanClient(int index) :
@@ -419,7 +420,6 @@ void LiveScanClient::ProcessFrame()
 {
 	unsigned int numVertices = captureManager->lastFrameVertices.size();
 
-	Log("vertices count: " + std::to_string(numVertices));
 	// To save some processing cost, we allocate a full frame size (numVertices) of a Point3f Vector beforehand
 	// instead of using push_back for each vertex. Even though we have to copy the vertices into a clean array
 	// later and it uses a little bit more RAM, this gives us a nice speed increase for this function, around 25-50%.
@@ -456,6 +456,7 @@ void LiveScanClient::ProcessFrame()
 				continue;
 			}
 			
+			/*
 			
 			// Only keep the point if there is not already data for the same reduced point when considering the range
 			else if (!voxelGridFilter.Insert(temp.X, temp.Y, temp.Z))
@@ -463,6 +464,7 @@ void LiveScanClient::ProcessFrame()
 				allVertices[vertexIndex] = invalidPoint;
 				continue;
 			} 
+			*/
 
 			voxelGridFilter.Insert(temp.X, temp.Y, temp.Z);
 		}
@@ -549,14 +551,11 @@ void LiveScanClient::ProcessFrame()
 	lastFrameVertices = goodVerticesShort;
 	lastFrameColors = goodColorPoints;
 
-	Log("last frame vertices count: " + std::to_string(lastFrameVertices.size()));
-
 	using pcl::PointCloud;
 	using pcl::PointXYZ;
 	using pcl::GreedyProjectionTriangulation;
 	using pcl::search::KdTree;
 
-	Log("library works");
 
 	// Convert into PCL point cloud
 	pcl::PointCloud<PointXYZ>::Ptr cloud(new pcl::PointCloud<PointXYZ>());
@@ -565,7 +564,6 @@ void LiveScanClient::ProcessFrame()
 	for (auto& p : goodVertices)
 		cloud->push_back(PointXYZ(p.X, p.Y, p.Z));
 
-	Log("convert into pcl point cloud works");
 
 	// Normal estimation
 	pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>());
@@ -578,8 +576,6 @@ void LiveScanClient::ProcessFrame()
 	size_t kSearch = std::min<size_t>(20, cloud->size());
 	ne.setKSearch(kSearch);
 	ne.compute(*normals);
-
-	Log("normal estimation works");
 
 	pcl::PointCloud<pcl::PointNormal>::Ptr cloudWithNormals(new pcl::PointCloud<pcl::PointNormal>());
 
@@ -601,7 +597,6 @@ void LiveScanClient::ProcessFrame()
 			pn.normal_x = 0.f;
 			pn.normal_y = 0.f;
 			pn.normal_z = 0.f;
-			Log("Point " + std::to_string(i) + " has no computed normal, using 0.");
 		}
 
 		// Only check xyz for finiteness
@@ -619,8 +614,6 @@ void LiveScanClient::ProcessFrame()
 		return;
 	}
 
-	Log("concatenation works");
-
 	// Create a proper KdTree for PointNormal
 	pcl::search::KdTree<pcl::PointNormal>::Ptr tree(new pcl::search::KdTree<pcl::PointNormal>());
 	tree->setInputCloud(cloudWithNormals);
@@ -629,7 +622,6 @@ void LiveScanClient::ProcessFrame()
 	pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
 	pcl::PolygonMesh mesh;
 
-	Log("gp3 works");
 
 	gp3.setSearchRadius(0.1f); 
 	gp3.setMu(2.5f);
@@ -639,18 +631,14 @@ void LiveScanClient::ProcessFrame()
 	gp3.setMaximumAngle(2 * M_PI / 3);
 	gp3.setNormalConsistency(false);
 
-	Log("gp3 parameters work");
 
 	gp3.setInputCloud(cloudWithNormals);
-	Log("input cloud works");
 
 	gp3.setSearchMethod(tree);
-	Log("search method works");
 
 	try
 	{
 		gp3.reconstruct(mesh);
-		Log("mesh reconstruction works");
 	}
 	catch (const std::exception& e)
 	{
@@ -685,13 +673,68 @@ void LiveScanClient::ProcessFrame()
 		}
 	}
 
-	Log("conversion works");
-
 	Log(
 		"[LiveScanClient] Mesh: " +
 		std::to_string(lastFrameMeshVertices.size() / 3) + " vertices, " +
 		std::to_string(lastFrameMeshIndices.size() / 3) + " triangles"
 	);
+
+	using json = nlohmann::json;
+
+	if (frameCounter == 400)
+	{
+		json j;
+
+		// Save point cloud vertices
+		{
+			json verts = json::array();
+			for (const auto& v : lastFrameVertices)
+			{
+				verts.push_back({
+					{"x", v.X},
+					{"y", v.Y},
+					{"z", v.Z}
+					});
+			}
+			j["vertices"] = verts;
+		}
+
+		// Save point cloud colors
+		{
+			json cols = json::array();
+			for (const auto& c : lastFrameColors)
+			{
+				cols.push_back({
+					{"r", c.Red},
+					{"g", c.Green},
+					{"b", c.Blue}
+					});
+			}
+			j["colors"] = cols;
+		}
+
+		// Save triangle mesh indices (flattened)
+		{
+			json tris = json::array();
+			for (size_t i = 0; i < lastFrameMeshIndices.size(); ++i)
+			{
+				tris.push_back(lastFrameMeshIndices[i]);
+			}
+			j["triangles"] = tris;
+		}
+
+		// Write JSON to file
+		std::ofstream out("frame_cam" + std::to_string(clientIndex) + ".json");
+		out << j.dump(4);        // pretty-print with 4 spaces
+		out.close();
+
+		Log("Saved frame to frame.json");
+	}
+
+	frameCounter++;
+
+	Log(std::to_string(frameCounter));
+
 
 }
 

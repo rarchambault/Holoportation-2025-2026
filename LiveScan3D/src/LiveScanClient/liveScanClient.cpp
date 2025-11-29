@@ -31,9 +31,11 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/surface/gp3.h>
+#include <pcl/surface/poisson.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/search/kdtree.h>
 #include <json.hpp>
+#include <pcl/filters/voxel_grid.h>
 
 
 LiveScanClient::LiveScanClient(int index) :
@@ -418,6 +420,7 @@ void LiveScanClient::UpdateFrame()
 /// </summary>
 void LiveScanClient::ProcessFrame()
 {
+
 	unsigned int numVertices = captureManager->lastFrameVertices.size();
 
 	// To save some processing cost, we allocate a full frame size (numVertices) of a Point3f Vector beforehand
@@ -456,15 +459,17 @@ void LiveScanClient::ProcessFrame()
 				continue;
 			}
 			
-			/*
 			
+			/*
 			// Only keep the point if there is not already data for the same reduced point when considering the range
 			else if (!voxelGridFilter.Insert(temp.X, temp.Y, temp.Z))
 			{
 				allVertices[vertexIndex] = invalidPoint;
 				continue;
-			} 
-			*/
+			} */
+			
+			
+			
 
 			voxelGridFilter.Insert(temp.X, temp.Y, temp.Z);
 		}
@@ -681,7 +686,7 @@ void LiveScanClient::ProcessFrame()
 
 	using json = nlohmann::json;
 
-	if (frameCounter == 400)
+	if (frameCounter == 200)
 	{
 		json j;
 
@@ -734,8 +739,6 @@ void LiveScanClient::ProcessFrame()
 	frameCounter++;
 
 	Log(std::to_string(frameCounter));
-
-
 }
 
 void LiveScanClient::ProcessDocument()

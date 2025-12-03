@@ -45,7 +45,6 @@ namespace LiveScanServer
         /// </summary>
         public void SendPointCloud(List<float> vertices, List<byte> colors, List<int> indices)
         {
-            // Wait for the client to request a new frame (1-byte handshake).
             byte[] requestBuffer = Receive(1);
 
             while (requestBuffer.Length != 0)
@@ -53,41 +52,36 @@ namespace LiveScanServer
                 if (requestBuffer[0] == 0)
                 {
                     int vertexCount = vertices.Count / 3;
-                    int colorCount = colors.Count;
                     int indexCount = indices.Count;
 
-                    // Safety: if colors are less than vertexCount*3, clamp vertexCount
-                    if (colorCount < vertexCount * 3)
+                    // Sanity: colors should always match vertices (3 bytes per vertex)
+                    int expectedColorCount = vertexCount * 3;
+                    if (colors.Count < expectedColorCount)
                     {
-                        vertexCount = colorCount / 3;
+                        // Drop frame (or fill missing colors)
+                        return;
                     }
 
                     try
                     {
                         NetworkStream stream = socket.GetStream();
 
-                        // --- HEADER ---
-                        // 3 ints: vertexCount, colorCount, indexCount
-                        byte[] header = new byte[sizeof(int) * 3];
+                        // --- HEADER: 2 ints ---
+                        byte[] header = new byte[sizeof(int) * 2];
                         Buffer.BlockCopy(BitConverter.GetBytes(vertexCount), 0, header, 0, 4);
-                        Buffer.BlockCopy(BitConverter.GetBytes(colorCount), 0, header, 4, 4);
-                        Buffer.BlockCopy(BitConverter.GetBytes(indexCount), 0, header, 8, 4);
+                        Buffer.BlockCopy(BitConverter.GetBytes(indexCount), 0, header, 4, 4);
                         stream.Write(header, 0, header.Length);
 
-                        // --- VERTICES (floats) ---
-                        // Only send the number of vertices that match the clamped vertexCount
-                        int vertsToSendCount = vertexCount * 3;
+                        // --- VERTICES (float32) ---
                         float[] vertsArray = vertices.ToArray();
-                        byte[] vertsBytes = new byte[vertsToSendCount * sizeof(float)];
+                        byte[] vertsBytes = new byte[vertexCount * 3 * sizeof(float)];
                         Buffer.BlockCopy(vertsArray, 0, vertsBytes, 0, vertsBytes.Length);
                         stream.Write(vertsBytes, 0, vertsBytes.Length);
 
-                        // --- COLORS (bytes) ---
-                        // We send colorCount bytes (R, G, B per vertex)
-                        byte[] colorsArray = colors.ToArray();
-                        stream.Write(colorsArray, 0, colorCount);
+                        // --- COLORS (byte3 per vertex) ---
+                        stream.Write(colors.ToArray(), 0, expectedColorCount);
 
-                        // --- INDICES (ints) ---
+                        // --- INDICES (int32) ---
                         int[] indexArray = indices.ToArray();
                         byte[] indexBytes = new byte[indexCount * sizeof(int)];
                         Buffer.BlockCopy(indexArray, 0, indexBytes, 0, indexBytes.Length);
@@ -95,13 +89,13 @@ namespace LiveScanServer
                     }
                     catch (Exception)
                     {
-                        // You can log if needed
+                        // connection died – ignore
                     }
                 }
 
-                // Ask again for the next 1-byte request to know if the client wants another mesh
                 requestBuffer = Receive(1);
             }
         }
+
     }
 }

@@ -182,7 +182,7 @@ namespace LiveScanServer
                 client.SetConfirmSyncStateCallback(OnConfirmSyncState);
                 client.SetConfirmMasterRestartCallback(OnConfirmMasterRestart);
                 client.SetSendDocumentCallback(OnReceiveDocument);
-                //client.SetSendLatestMeshCallback();
+                client.SetSendLatestMeshCallback();
                 client.Start();
 
 

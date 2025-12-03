@@ -156,85 +156,61 @@ public class HoloportReceiver : MonoBehaviour
 
                 // 1) Request a new frame (1-byte handshake: 0)
                 await stream.WriteAsync(new byte[] { 0 });
+                // Header: 2 ints
+                byte[] headerBytes = await ReadAsync(pointCloudClient, sizeof(int) * 2);
 
-                // 2) Read header: 3 ints
-                //    [0..3]   = vertexCount
-                //    [4..7]   = colorCount
-                //    [8..11]  = indexCount
-                byte[] headerBytes = await ReadAsync(pointCloudClient, sizeof(int) * 3);
                 int vertexCount = BitConverter.ToInt32(headerBytes, 0);
-                int colorCount = BitConverter.ToInt32(headerBytes, 4);
-                int indexCount = BitConverter.ToInt32(headerBytes, 8);
+                int indexCount = BitConverter.ToInt32(headerBytes, 4);
 
-                // Basic sanity check
-                if (vertexCount <= 0 || colorCount <= 0 || indexCount <= 0)
-                {
-                    Debug.LogWarning($"Received invalid mesh header: v={vertexCount}, c={colorCount}, i={indexCount}");
-                    continue;
-                }
+                // Derived color count
+                int colorCount = vertexCount * 3;
 
+                // Byte counts
                 int verticesByteCount = vertexCount * 3 * sizeof(float);
                 int colorsByteCount = colorCount * sizeof(byte);
                 int indicesByteCount = indexCount * sizeof(int);
 
-                // 3) Read vertices (floats)
+                // Read buffers
                 byte[] verticesBytes = await ReadAsync(pointCloudClient, verticesByteCount);
-
-                // 4) Read colors (bytes)
                 byte[] colorsBytes = await ReadAsync(pointCloudClient, colorsByteCount);
-
-                // 5) Read triangle indices (ints)
                 byte[] indicesBytes = await ReadAsync(pointCloudClient, indicesByteCount);
 
-                // --- Deserialize vertices ---
+                // Deserialize floats
                 float[] vertsFloat = new float[vertexCount * 3];
                 Buffer.BlockCopy(verticesBytes, 0, vertsFloat, 0, verticesByteCount);
 
                 Vector3[] vertices = new Vector3[vertexCount];
                 for (int i = 0; i < vertexCount; i++)
                 {
-                    int baseIndex = i * 3;
-                    // No quantization now: coordinates are already in world units
+                    int b = i * 3;
                     vertices[i] = new Vector3(
-                        vertsFloat[baseIndex + 0],
-                        vertsFloat[baseIndex + 1],
-                        vertsFloat[baseIndex + 2]
+                        vertsFloat[b],
+                        vertsFloat[b + 1],
+                        vertsFloat[b + 2]
                     );
                 }
 
-                // --- Deserialize colors ---
+                // Deserialize colors
                 Color32[] colors = new Color32[vertexCount];
-
-                int maxVerticesFromColors = colorCount / 3;
-                int colorVertices = Mathf.Min(vertexCount, maxVerticesFromColors);
-
-                for (int i = 0; i < colorVertices; i++)
+                for (int i = 0; i < vertexCount; i++)
                 {
-                    int cBase = i * 3;
-                    byte r = colorsBytes[cBase + 0];
-                    byte g = colorsBytes[cBase + 1];
-                    byte b = colorsBytes[cBase + 2];
-                    colors[i] = new Color32(r, g, b, 255);
+                    int b = i * 3;
+                    colors[i] = new Color32(
+                        colorsBytes[b],
+                        colorsBytes[b + 1],
+                        colorsBytes[b + 2],
+                        255
+                    );
                 }
 
-                // If, for some reason, we have fewer colors than vertices, fill the rest as white
-                for (int i = colorVertices; i < vertexCount; i++)
-                {
-                    colors[i] = new Color32(255, 255, 255, 255);
-                }
+                // Deserialize indices
+                int[] meshIndices = new int[indexCount];
+                Buffer.BlockCopy(indicesBytes, 0, meshIndices, 0, indicesByteCount);
 
-                // --- Deserialize indices ---
-                int[] indices = new int[indexCount];
-                Buffer.BlockCopy(indicesBytes, 0, indices, 0, indicesByteCount);
+                Debug.Log($"Received mesh: {vertexCount} verts, {indexCount / 3} triangles.");
 
-                Debug.Log($"Received mesh: {vertexCount} vertices, {indexCount / 3} triangles.");
+                pointCloudRenderer.EnqueueMesh(vertices, colors, meshIndices);
 
-                // 6) Hand off to renderer (you implement this in PointCloudRenderer)
-                //    e.g. it creates/updates a UnityEngine.Mesh
-                if (pointCloudRenderer != null)
-                {
-                    pointCloudRenderer.EnqueueMesh(vertices, colors, indices);
-                }
             }
             catch (Exception e)
             {

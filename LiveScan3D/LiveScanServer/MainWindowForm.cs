@@ -59,6 +59,10 @@ namespace LiveScanServer
         private OpenGLWindow openGLWindow;
         private System.Timers.Timer statusBarTimer = new System.Timers.Timer();
 
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern bool AllocConsole();
+        private readonly object meshLock = new object();
+
 
         // Mesh indices from all cameras (flattened, global indices)
         private List<int> meshIndices = new List<int>();
@@ -134,6 +138,8 @@ namespace LiveScanServer
             // We wrap everything in a try so we see any managed exception
             try
             {
+                AllocConsole();
+                Console.WriteLine("Console allocated.");
                 // 🔹 1) Load settings (same as before)
                 try
                 {
@@ -147,13 +153,12 @@ namespace LiveScanServer
                     // Ignore errors, keep default settings
                 }
 
-                MessageBox.Show("A: Settings loaded (or default)");
-
                 // 🔹 2) Create servers
                 cameraServer = new CameraServer(settings);
                 cameraServer.OnClientListChanged += new ClientListChangedHandler(UpdateListView);
 
                 transferServer = new TransferServer();
+                transferServer.SharedMeshLock = meshLock;
 
                 // Share lists with TransferServer (including mesh)
                 transferServer.Vertices = vertices;
@@ -161,33 +166,28 @@ namespace LiveScanServer
                 transferServer.MeshIndices = meshIndices;
                 transferServer.DocumentInfo = cameraServer.DocumentInfo;
 
-                MessageBox.Show("B: CameraServer + TransferServer created, lists shared");
-
                 // 🔹 3) Initialize WinForms UI
                 InitializeComponent();
-                MessageBox.Show("C: After InitializeComponent");
 
                 // 🔹 4) Start TCP servers
                 transferServer.StartPointCloudServer();
                 transferServer.StartDocumentServer();
-                MessageBox.Show("D: TransferServer point cloud + document servers started");
+
+                RestartUpdateWorker();
+                Console.WriteLine("[INFO] UpdateLatestFrame worker started automatically.");
 
                 // 🔹 5) Orbbec: detect devices
-                MessageBox.Show("E: About to call ob_create_context");
                 IntPtr ctx = ob_create_context();
-                MessageBox.Show("F: ob_create_context OK. ctx = " + ctx);
 
-                MessageBox.Show("G: About to call ob_query_device_list");
                 IntPtr devList = ob_query_device_list(ctx);
-                MessageBox.Show("H: ob_query_device_list OK. devList = " + devList);
-
+          
                 uint count = ob_device_list_device_count(devList).ToUInt32();
-                MessageBox.Show("I: ob_device_list_device_count = " + count);
+                
 
                 // 🔹 6) Launch camera clients
-                MessageBox.Show("J: Before cameraServer.LaunchClients(" + count + ")");
+                
                 cameraServer.LaunchClients(count);
-                MessageBox.Show("K: After cameraServer.LaunchClients");
+                
             }
             catch (Exception ex)
             {
@@ -346,34 +346,28 @@ namespace LiveScanServer
         private void UpdateLatestFrame(object sender, DoWorkEventArgs e)
         {
             BackgroundWorker worker = (BackgroundWorker)sender;
+
             while (!worker.CancellationPending)
             {
                 Thread.Sleep(1);
 
                 // Check that all connected cameras are initialized
                 if (!cameraServer.GetAllDevicesInitialized())
-                {
                     continue;
-                }
 
-                // Request latest frame from each camera
-                lock (cameraVertices)
+                lock (meshLock)   // ⭐ FULL FRAME UPDATE LOCK ⭐
                 {
+                    // --- 1) pull latest frames from cameraServer ---
                     cameraServer.GetLatestFrame(ref cameraColors, ref cameraVertices);
-
-                    // NEW: also get per-camera mesh indices
                     cameraServer.GetMeshIndices(ref cameraMeshIndices);
-                }
 
-                // Update the local lists representing the latest frame
-                lock (vertices)
-                {
+                    // --- 2) clear and rebuild our unified lists ---
                     vertices.Clear();
                     colors.Clear();
-                    meshIndices.Clear();    // NEW
+                    meshIndices.Clear();
                     cameraPoses.Clear();
 
-                    int vertexOffset = 0;   // counts vertices, not floats
+                    int vertexOffset = 0;
 
                     for (int i = 0; i < cameraColors.Count; i++)
                     {
@@ -381,13 +375,11 @@ namespace LiveScanServer
                         var camColors = cameraColors[i];
                         var camMeshIndices = (i < cameraMeshIndices.Count) ? cameraMeshIndices[i] : null;
 
-                        // Append this camera's vertices and colors
                         vertices.AddRange(camVerts);
                         colors.AddRange(camColors);
 
-                        int camVertexCount = camVerts.Count / 3; // 3 floats per vertex
+                        int camVertexCount = camVerts.Count / 3;
 
-                        // Rebase and append this camera's mesh indices if present
                         if (camMeshIndices != null)
                         {
                             foreach (var idx in camMeshIndices)
@@ -402,12 +394,8 @@ namespace LiveScanServer
                     cameraPoses.AddRange(cameraServer.CameraPoses);
                 }
 
-
                 if (openGLWindow != null)
-                {
-                    // Note that a new frame was obtained (this is used to estimate the FPS)
                     openGLWindow.IncreaseFrameCounter();
-                }           
             }
         }
 
@@ -627,6 +615,11 @@ namespace LiveScanServer
 
 
             lClientListBox.DataSource = listBoxItems;
+        }
+
+        private void lClientListBox_SelectedIndexChanged(object sender, EventArgs e)
+        {
+
         }
     }
 }

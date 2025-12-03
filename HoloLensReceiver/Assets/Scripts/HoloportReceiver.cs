@@ -155,7 +155,7 @@ public class HoloportReceiver : MonoBehaviour
                 NetworkStream stream = pointCloudClient.GetStream();
 
                 // 1) Request a new frame (1-byte handshake: 0)
-                await stream.WriteAsync(new byte[] { 0 }, 0, 1);
+                await stream.WriteAsync(new byte[] { 0 });
 
                 // 2) Read header: 3 ints
                 //    [0..3]   = vertexCount

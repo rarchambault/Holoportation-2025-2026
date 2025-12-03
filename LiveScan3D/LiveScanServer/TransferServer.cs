@@ -50,7 +50,8 @@ namespace LiveScanServer
         private object documentClientLock = new object();
         private bool isDocumentServerRunning = false;
 
-        
+        public object SharedMeshLock;
+
 
 
         ~TransferServer()
@@ -268,12 +269,12 @@ namespace LiveScanServer
             {
                 for (int i = 0; i < pointCloudClients.Count; i++)
                 {
-                    lock (Vertices)
-                        lock (Colors)
-                            lock (MeshIndices)
-                            {
-                                pointCloudClients[i].SendPointCloud(Vertices, Colors, MeshIndices);
-                            }
+                    lock (SharedMeshLock)
+                    {
+                        System.Console.WriteLine($"[DEBUG] Server sees: Vertices={Vertices.Count}, Colors={Colors.Count}, MeshIndices={MeshIndices.Count}");
+                        pointCloudClients[i].SendPointCloud(Vertices, Colors, MeshIndices);
+                    }
+                        
                 }
 
                 await Task.Delay(10);    // ~100 FPS

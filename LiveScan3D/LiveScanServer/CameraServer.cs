@@ -475,20 +475,42 @@ namespace LiveScanServer
 
         public void GetMeshIndices(ref List<List<int>> perCamIndices)
         {
-            int count = perCamIndices.Count;
-            if (perCamIndices.Capacity < count)
-                perCamIndices.Capacity = count;
-
             perCamIndices.Clear();
 
+            // Request
+            lock (clientLock)
+            {
+                foreach (var client in liveScanClients)
+                    client.RequestLatestMesh();
+            }
+
+            // Wait
+            bool allReady = false;
+            while (!allReady)
+            {
+                allReady = true;
+                lock (clientLock)
+                {
+                    foreach (var client in liveScanClients)
+                        if (!client.IsLatestMeshReceived)
+                            allReady = false;
+                }
+            }
+
+            // Read
             lock (clientLock)
             {
                 foreach (var client in liveScanClients)
                 {
-                    perCamIndices.Add(client.MeshIndices);
+                    lock (client.MeshLock)
+                    {
+                        perCamIndices.Add(new List<int>(client.MeshIndices));
+                        //MessageBox.Show("meshIndices.Count = " + client.MeshIndices.Count);
+                    }
                 }
             }
         }
+
 
 
 

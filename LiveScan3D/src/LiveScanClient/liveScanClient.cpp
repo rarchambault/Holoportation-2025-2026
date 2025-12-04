@@ -832,7 +832,14 @@ void LiveScanClient::SendLatestMesh()
 			(int)lastFrameMeshIndices.size()
 		);
 	}
+	Log(">>> [C++] SendLatestMesh() CALLED with " + std::to_string(lastFrameMeshIndices.size() / 3) + " triangles");
 }
+
+void LiveScanClient::RequestLatestMesh()
+{
+	SendLatestMesh();
+}
+
 
 void LiveScanClient::SendRecordedFrame(std::vector<Point3s>& vertices, std::vector<RGB>& RGB, bool noMoreFrames)
 {

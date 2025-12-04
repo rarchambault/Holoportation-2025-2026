@@ -207,3 +207,11 @@ void SetSendLatestMeshCallback(LiveScanClientHandle handle, SendLatestMeshCallba
 	if (wrapper)
 		wrapper->sendLatestMeshCallback = cb;
 }
+
+void RequestLatestMesh(LiveScanClientHandle handle)
+{
+	auto* wrapper = static_cast<LiveScanClientWrapper*>(handle);
+	if (!wrapper) return;
+
+	wrapper->client->RequestLatestMesh();
+}

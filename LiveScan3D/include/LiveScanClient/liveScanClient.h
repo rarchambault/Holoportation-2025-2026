@@ -57,6 +57,7 @@ public:
     void DisableSync();
     void StartMaster();
     void RequestExit();
+    void RequestLatestMesh();
 
     std::function<void(const std::string&)> GetLogger();
 

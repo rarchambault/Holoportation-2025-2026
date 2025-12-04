@@ -139,8 +139,8 @@ namespace LiveScanServer
             try
             {
                 Environment.SetEnvironmentVariable("OB_LOG_LEVEL", "ERROR");
-                AllocConsole();
-                Console.WriteLine("Console allocated.");
+                //AllocConsole();
+                //Console.WriteLine("Console allocated.");
                 // 🔹 1) Load settings (same as before)
                 try
                 {
@@ -362,11 +362,11 @@ namespace LiveScanServer
                     cameraServer.GetLatestFrame(ref cameraColors, ref cameraVertices);
                     cameraServer.GetMeshIndices(ref cameraMeshIndices);
 
-                    Console.WriteLine($"[DEBUG] cameraMeshIndices.Count = {cameraMeshIndices.Count}");
+                    /*Console.WriteLine($"[DEBUG] cameraMeshIndices.Count = {cameraMeshIndices.Count}");
                     for (int i = 0; i < cameraMeshIndices.Count; i++)
                     {
                         Console.WriteLine($"  Cam {i}: {cameraMeshIndices[i]?.Count ?? -1} indices");
-                    }
+                    }*/
 
                     // --- 2) clear and rebuild our unified lists ---
                     vertices.Clear();

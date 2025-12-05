@@ -686,7 +686,7 @@ void LiveScanClient::ProcessFrame()
 
 	using json = nlohmann::json;
 
-	if (frameCounter == 200)
+	if (frameCounter % 10 == 0)
 	{
 		json j;
 

@@ -22,6 +22,11 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 #include <fstream>
 #include <functional>
 
+//modifications
+
+#include <algorithm>
+#include <cmath>
+
 Calibration::Calibration() : usedMarkerId(-1)
 {
 	// Initialize variables
@@ -315,6 +320,87 @@ void Calibration::Procrustes(MarkerInfo &marker, vector<Point3f> &markerInWorld,
 	}
 }
 
+//modifications
+
+static inline bool IsValidDepthPoint(const Point3f& p)
+{
+	// Best-effort assumption:
+	// - invalid if Z <= 0
+	// - also reject NaN/Inf
+	return (p.Z > 0.0f) && std::isfinite(p.X) && std::isfinite(p.Y) && std::isfinite(p.Z);
+}
+
+static inline float MedianOf(std::vector<float>& v)
+{
+	// v must be non-empty
+	size_t mid = v.size() / 2;
+	std::nth_element(v.begin(), v.begin() + mid, v.end());
+	float med = v[mid];
+
+	// If even size, average two middle values (slightly nicer)
+	if ((v.size() % 2) == 0)
+	{
+		std::nth_element(v.begin(), v.begin() + (mid - 1), v.end());
+		med = 0.5f * (med + v[mid - 1]);
+	}
+	return med;
+}
+
+static bool SampleRobustPointFromPatch(
+	const Point3f* depthFrame,
+	int frameWidth,
+	int frameHeight,
+	float x,
+	float y,
+	int radius,               // radius=2 => 5x5
+	int minValidSamples,      // minimum valid points needed
+	Point3f& outPoint)
+{
+	// Nearest pixel center (best-effort assumption)
+	int cx = static_cast<int>(std::lround(x));
+	int cy = static_cast<int>(std::lround(y));
+
+	int x0 = std::max(0, cx - radius);
+	int x1 = std::min(frameWidth - 1, cx + radius);
+	int y0 = std::max(0, cy - radius);
+	int y1 = std::min(frameHeight - 1, cy + radius);
+
+	std::vector<float> xs;
+	std::vector<float> ys;
+	std::vector<float> zs;
+	xs.reserve((2 * radius + 1) * (2 * radius + 1));
+	ys.reserve((2 * radius + 1) * (2 * radius + 1));
+	zs.reserve((2 * radius + 1) * (2 * radius + 1));
+
+	for (int yy = y0; yy <= y1; yy++)
+	{
+		int row = yy * frameWidth;
+		for (int xx = x0; xx <= x1; xx++)
+		{
+			const Point3f p = depthFrame[row + xx];
+			if (!IsValidDepthPoint(p)) continue;
+
+			xs.push_back(p.X);
+			ys.push_back(p.Y);
+			zs.push_back(p.Z);
+		}
+	}
+
+	if (static_cast<int>(zs.size()) < minValidSamples)
+		return false;
+
+	// Median independently for X/Y/Z (robust, simple, works well for small patches)
+	float mx = MedianOf(xs);
+	float my = MedianOf(ys);
+	float mz = MedianOf(zs);
+
+	outPoint.X = mx;
+	outPoint.Y = my;
+	outPoint.Z = mz;
+	return true;
+}
+
+
 /// <summary>
 /// Uses bilinear interpolation to find marker corner positions in 3D (camera space) from a depth frame.
 /// </summary>
@@ -324,38 +410,39 @@ void Calibration::Procrustes(MarkerInfo &marker, vector<Point3f> &markerInWorld,
 /// <param name="frameWidth">Width of the color and depth frames</param>
 /// <param name="frameHeight">Height of the color and depth frames</param>
 /// <returns></returns>
-bool Calibration::Get3DMarkerCorners(vector<Point3f> &marker3D, MarkerInfo &marker, Point3f *depthFrame, int frameWidth, int frameHeight)
+bool Calibration::Get3DMarkerCorners(vector<Point3f>& marker3D, MarkerInfo& marker, Point3f* depthFrame, int frameWidth, int frameHeight)
 {
+	// Best-effort assumptions:
+	// - depthFrame is aligned to the color frame
+	// - invalid depth is Z <= 0 (and/or NaN/Inf)
+	// - robust sampling is better than bilinear at edges/corners
+
+	const int patchRadius = 2;            // 5x5 patch
+	const int minValidSamples = 8;        // require at least 8 valid points in the patch
+
 	for (unsigned int i = 0; i < marker.Corners.size(); i++)
 	{
-		// Get pixel coordinates of the corner
-		int minX = static_cast<int>(marker.Corners[i].X);
-		int maxX = minX + 1;
-		int minY = static_cast<int>(marker.Corners[i].Y);
-		int maxY = minY + 1;
+		Point3f robustPoint;
+		bool ok = SampleRobustPointFromPatch(
+			depthFrame,
+			frameWidth,
+			frameHeight,
+			marker.Corners[i].X,
+			marker.Corners[i].Y,
+			patchRadius,
+			minValidSamples,
+			robustPoint
+		);
 
-		// Compute how far the actual corner is from the top-left pixel
-		float dx = marker.Corners[i].X - minX;
-		float dy = marker.Corners[i].Y - minY;
-
-		// Fetch 3D points at surrounding pixels
-		Point3f pointMin = depthFrame[minX + minY * frameWidth];
-		Point3f pointXMaxYMin = depthFrame[maxX + minY * frameWidth];
-		Point3f pointXMinYMax = depthFrame[minX + maxY * frameWidth];
-		Point3f pointMax = depthFrame[maxX + maxY * frameWidth];
-
-		// If any of the depth values are invalid (Z <= 0), abort
-		if (pointMin.Z <= 0 || pointXMaxYMin.Z <= 0 || pointXMinYMax.Z <= 0 || pointMax.Z <= 0)
+		if (!ok)
 			return false;
 
-		// Bilinear interpolation for X, Y, Z
-		marker3D[i].X = (1 - dx) * (1 - dy) * pointMin.X + dx * (1 - dy) * pointXMaxYMin.X + (1 - dx) * dy * pointXMinYMax.X + dx * dy * pointMax.X;
-		marker3D[i].Y = (1 - dx) * (1 - dy) * pointMin.Y + dx * (1 - dy) * pointXMaxYMin.Y + (1 - dx) * dy * pointXMinYMax.Y + dx * dy * pointMax.Y;
-		marker3D[i].Z = (1 - dx) * (1 - dy) * pointMin.Z + dx * (1 - dy) * pointXMaxYMin.Z + (1 - dx) * dy * pointXMinYMax.Z + dx * dy * pointMax.Z;
+		marker3D[i] = robustPoint;
 	}
 
 	return true;
 }
+
 
 /// <summary>
 /// Applies the inverse rotation to a 3D point using the transpose of R.

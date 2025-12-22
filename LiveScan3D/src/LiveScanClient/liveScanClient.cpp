@@ -472,8 +472,8 @@ void LiveScanClient::ProcessFrame()
 	}
 
 	// Apply simple voxel density-based filter
-	const float voxelSize = 0.006f;
-	const int minPointsPerVoxel = 0;
+	const float voxelSize = 0.02f;
+	const int minPointsPerVoxel = 1;
 
 	// Count points per voxel
 	std::map<uint64_t, int> voxelCounts;
@@ -760,9 +760,9 @@ float LiveScanClient::ComputeImageDifference(cv::Mat& newDocumentData)
 	cv::cvtColor(diff, grayDiff, cv::COLOR_BGR2GRAY);
 
 	// Compute mean difference
-	double meanDiff = cv::mean(grayDiff)[0]; // average intensity difference (0–255)
+	double meanDiff = cv::mean(grayDiff)[0]; // average intensity difference (0?55)
 
-	// Normalize to 0.0–1.0
+	// Normalize to 0.0?.0
 	float normalizedDiff = static_cast<float>(meanDiff / 255.0);
 
 	// Update stored frame

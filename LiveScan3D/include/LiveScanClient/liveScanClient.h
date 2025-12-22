@@ -62,7 +62,7 @@ public:
     std::function<void(const std::string&)> GetLogger();
 
 private:
-    const float Range = 0.3f;
+    const float Range = 1.5f;
     const float HalfRange = Range / 2.0f;
     const float MinPrecision = Range / 255; // Min precision (max resolution) with the set range and the number of values in a byte (255)
     const int GridResolution = Range / MinPrecision;

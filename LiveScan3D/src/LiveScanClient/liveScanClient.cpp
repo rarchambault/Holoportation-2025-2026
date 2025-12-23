@@ -460,17 +460,14 @@ void LiveScanClient::ProcessFrame()
 			}
 			
 			
-			/*
+			
 			// Only keep the point if there is not already data for the same reduced point when considering the range
 			else if (!voxelGridFilter.Insert(temp.X, temp.Y, temp.Z))
 			{
 				allVertices[vertexIndex] = invalidPoint;
 				continue;
-			} */
+			} 
 			
-			
-			
-
 			voxelGridFilter.Insert(temp.X, temp.Y, temp.Z);
 		}
 
@@ -479,8 +476,8 @@ void LiveScanClient::ProcessFrame()
 	}
 
 	// Apply simple voxel density-based filter
-	const float voxelSize = 0.006f;
-	const int minPointsPerVoxel = 0;
+	const float voxelSize = 0.02f;
+	const int minPointsPerVoxel = 1;
 
 	// Count points per voxel
 	std::map<uint64_t, int> voxelCounts;
@@ -686,7 +683,7 @@ void LiveScanClient::ProcessFrame()
 
 	using json = nlohmann::json;
 
-	if (frameCounter % 10 == 0)
+	if (frameCounter % 100 == 0)
 	{
 		json j;
 

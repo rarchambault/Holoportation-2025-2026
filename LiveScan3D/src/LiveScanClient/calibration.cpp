@@ -26,6 +26,7 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 
 Calibration::Calibration() : usedMarkerId(-1)
 {
@@ -52,6 +53,121 @@ Calibration::~Calibration()
 		markerDetector = NULL;
 	}
 }
+
+// modifications
+
+static inline float Sq(float v) { return v * v; }
+
+static inline float DistSq3(const Point3f& a, const Point3f& b)
+{
+	return Sq(a.X - b.X) + Sq(a.Y - b.Y) + Sq(a.Z - b.Z);
+}
+
+static Point3f MedianPoint3f(std::vector<Point3f>& pts)
+{
+	// pts must be non-empty
+	std::vector<float> xs, ys, zs;
+	xs.reserve(pts.size());
+	ys.reserve(pts.size());
+	zs.reserve(pts.size());
+
+	for (const auto& p : pts)
+	{
+		xs.push_back(p.X);
+		ys.push_back(p.Y);
+		zs.push_back(p.Z);
+	}
+
+	auto medianOf = [](std::vector<float>& v) -> float {
+		size_t mid = v.size() / 2;
+		std::nth_element(v.begin(), v.begin() + mid, v.end());
+		float med = v[mid];
+		if ((v.size() % 2) == 0)
+		{
+			std::nth_element(v.begin(), v.begin() + (mid - 1), v.end());
+			med = 0.5f * (med + v[mid - 1]);
+		}
+		return med;
+		};
+
+	Point3f out;
+	out.X = medianOf(xs);
+	out.Y = medianOf(ys);
+	out.Z = medianOf(zs);
+	return out;
+}
+
+static inline float Dist3(const Point3f& a, const Point3f& b)
+{
+	float dx = a.X - b.X, dy = a.Y - b.Y, dz = a.Z - b.Z;
+	return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+static inline float Dist2(const Point2f& a, const Point2f& b)
+{
+	float dx = a.X - b.X, dy = a.Y - b.Y;
+	return std::sqrt(dx * dx + dy * dy);
+}
+
+// Returns true if this sample is "reasonable"
+static bool PassMarkerSampleGates(
+	const MarkerInfo& marker,
+	const std::vector<Point3f>& marker3D)
+{
+	// Assumptions:
+	// - marker has 4 corners in consistent order (0..3)
+	// - marker3D contains corresponding 3D points
+	if (marker.Corners.size() < 4 || marker3D.size() < 4) return false;
+
+	// (A) 2D geometry sanity: opposite edges should be similar length
+	float e01 = Dist2(marker.Corners[0], marker.Corners[1]);
+	float e12 = Dist2(marker.Corners[1], marker.Corners[2]);
+	float e23 = Dist2(marker.Corners[2], marker.Corners[3]);
+	float e30 = Dist2(marker.Corners[3], marker.Corners[0]);
+
+	// avoid degenerate detections
+	if (e01 < 2.0f || e12 < 2.0f || e23 < 2.0f || e30 < 2.0f) return false;
+
+	float opp1 = std::max(e01, e23) / std::min(e01, e23);
+	float opp2 = std::max(e12, e30) / std::min(e12, e30);
+
+	// best-effort threshold: if the rectangle is extremely skewed, reject
+	if (opp1 > 2.5f || opp2 > 2.5f) return false;
+
+	// (B) 3D depth sanity: corner depths shouldn't wildly disagree
+	float zmin = marker3D[0].Z, zmax = marker3D[0].Z;
+	for (int i = 1; i < 4; i++)
+	{
+		zmin = std::min(zmin, marker3D[i].Z);
+		zmax = std::max(zmax, marker3D[i].Z);
+	}
+
+	// Best-effort: allow some tilt; reject extreme depth spread (often bad depth)
+	// Use a relative gate to be unit-agnostic.
+	float zSpread = zmax - zmin;
+	float zMean = 0.25f * (marker3D[0].Z + marker3D[1].Z + marker3D[2].Z + marker3D[3].Z);
+	if (zMean <= 0.0f) return false;
+
+	// e.g. spread > 25% of mean distance is suspicious
+	if (zSpread > 0.25f * zMean) return false;
+
+	// (C) 3D size sanity: adjacent 3D edges shouldn't collapse
+	float d01 = Dist3(marker3D[0], marker3D[1]);
+	float d12 = Dist3(marker3D[1], marker3D[2]);
+	float d23 = Dist3(marker3D[2], marker3D[3]);
+	float d30 = Dist3(marker3D[3], marker3D[0]);
+
+	if (d01 <= 0.0f || d12 <= 0.0f || d23 <= 0.0f || d30 <= 0.0f) return false;
+
+	// Reject if 3D edges are extremely inconsistent (often indicates depth holes)
+	float dOpp1 = std::max(d01, d23) / std::min(d01, d23);
+	float dOpp2 = std::max(d12, d30) / std::min(d12, d30);
+	if (dOpp1 > 3.0f || dOpp2 > 3.0f) return false;
+
+	return true;
+}
+
+
 
 /// <summary>
 /// Finds the transformations required to project local points into global space by finding a marker from a color frame.
@@ -107,6 +223,10 @@ bool Calibration::Calibrate(RGB *colorFrame, Point3f *depthFrame, int frameWidth
 		return false;
 	}
 
+	if (!PassMarkerSampleGates(marker, marker3D))
+		return false;
+
+
 	// Save the found marker position and wait until enough samples have been saved
 	markerSamplePositions.push_back(marker3D);
 	numSamples++;
@@ -116,16 +236,71 @@ bool Calibration::Calibrate(RGB *colorFrame, Point3f *depthFrame, int frameWidth
 	}
 		
 	// Calculate the average 3D position of the marker from all samples
-	for (size_t i = 0; i < marker3D.size(); i++)
+	// --- Robust frame outlier rejection + averaging ---
+// 1) Build a robust per-corner reference using the median across samples.
+// 2) Score each sample by how far its corners deviate from that reference.
+// 3) Keep only the best samples (drop worst outliers).
+// 4) Average only inliers.
+
+	const int S = NumRequiredSamples;
+	const int C = (int)marker3D.size();
+
+	// (A) robust reference per corner (median across samples)
+	std::vector<Point3f> refCorners(C);
+	for (int c = 0; c < C; c++)
 	{
-		marker3D[i] = Point3f();
-		for (int j = 0; j < NumRequiredSamples; j++)
+		std::vector<Point3f> cornerPts;
+		cornerPts.reserve(S);
+		for (int s = 0; s < S; s++)
+			cornerPts.push_back(markerSamplePositions[s][c]);
+
+		refCorners[c] = MedianPoint3f(cornerPts);
+	}
+
+	// (B) compute per-sample error score
+	struct SampleScore { int idx; float err; };
+	std::vector<SampleScore> scores;
+	scores.reserve(S);
+
+	for (int s = 0; s < S; s++)
+	{
+		float err = 0.0f;
+		for (int c = 0; c < C; c++)
+			err += DistSq3(markerSamplePositions[s][c], refCorners[c]);
+
+		scores.push_back({ s, err });
+	}
+
+	// (C) keep best fraction (drop worst outliers)
+	std::sort(scores.begin(), scores.end(),
+		[](const SampleScore& a, const SampleScore& b) { return a.err < b.err; });
+
+	// Best-effort choice: keep 80% of samples, at least 3
+	int keepCount = (int)std::floor(0.8f * (float)S);
+	if (keepCount < 3) keepCount = std::min(3, S);
+
+	// (D) average only inliers
+	marker3D.assign(C, Point3f());
+	for (int k = 0; k < keepCount; k++)
+	{
+		int s = scores[k].idx;
+		for (int c = 0; c < C; c++)
 		{
-			marker3D[i].X += markerSamplePositions[j][i].X / (float)NumRequiredSamples;
-			marker3D[i].Y += markerSamplePositions[j][i].Y / (float)NumRequiredSamples;
-			marker3D[i].Z += markerSamplePositions[j][i].Z / (float)NumRequiredSamples;
+			marker3D[c].X += markerSamplePositions[s][c].X;
+			marker3D[c].Y += markerSamplePositions[s][c].Y;
+			marker3D[c].Z += markerSamplePositions[s][c].Z;
 		}
 	}
+
+	const float invKeep = 1.0f / (float)keepCount;
+	for (int c = 0; c < C; c++)
+	{
+		marker3D[c].X *= invKeep;
+		marker3D[c].Y *= invKeep;
+		marker3D[c].Z *= invKeep;
+	}
+	// --- end robust averaging ---
+
 
 	// Apply the Procrustes algorithm to find the world position of the marker
 	Procrustes(marker, marker3D, worldT, worldR);

@@ -182,8 +182,10 @@ namespace LiveScanServer
                 client.SetConfirmSyncStateCallback(OnConfirmSyncState);
                 client.SetConfirmMasterRestartCallback(OnConfirmMasterRestart);
                 client.SetSendDocumentCallback(OnReceiveDocument);
+                client.SetSendLatestMeshCallback();
                 client.Start();
-                
+
+
                 // Send settings
                 client.SetSettings(cameraSettings);
             }
@@ -454,6 +456,9 @@ namespace LiveScanServer
             }
         }
 
+      
+
+
         /// <summary>
         /// Tells each connected client to clear its internal recorded frame lists
         /// </summary>
@@ -467,6 +472,46 @@ namespace LiveScanServer
                 }
             }
         }
+
+        public void GetMeshIndices(ref List<List<int>> perCamIndices)
+        {
+            perCamIndices.Clear();
+
+            // Request
+            lock (clientLock)
+            {
+                foreach (var client in liveScanClients)
+                    client.RequestLatestMesh();
+            }
+
+            // Wait
+            bool allReady = false;
+            while (!allReady)
+            {
+                allReady = true;
+                lock (clientLock)
+                {
+                    foreach (var client in liveScanClients)
+                        if (!client.IsLatestMeshReceived)
+                            allReady = false;
+                }
+            }
+
+            // Read
+            lock (clientLock)
+            {
+                foreach (var client in liveScanClients)
+                {
+                    lock (client.MeshLock)
+                    {
+                        perCamIndices.Add(new List<int>(client.MeshIndices));
+                        //MessageBox.Show("meshIndices.Count = " + client.MeshIndices.Count);
+                    }
+                }
+            }
+        }
+
+
 
 
         private void ConfirmSyncDisabled()
@@ -606,5 +651,6 @@ namespace LiveScanServer
                 OnClientListChanged(liveScanClients);
             }
         }
+
     }
 }

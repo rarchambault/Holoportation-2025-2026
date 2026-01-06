@@ -20,6 +20,7 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Windows.Forms;
 
 namespace LiveScanServer
 {
@@ -69,7 +70,12 @@ namespace LiveScanServer
         [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void StartMaster(IntPtr handle);
 
+      
+
+  
+
         #endregion
+
 
         #region Client to server (inbound) call imports
         [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -95,6 +101,13 @@ namespace LiveScanServer
 
         [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void SetSendDocumentCallback(IntPtr handle, SendDocumentCallback callback);
+
+        [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void SetSendLatestMeshCallback(IntPtr handle, SendLatestMeshCallback callback);
+        
+        [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void RequestLatestMesh(IntPtr handle);
+
 
         // Callback definitions
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -124,6 +137,10 @@ namespace LiveScanServer
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void SendDeviceSyncStateCallback(int clientIndex, int syncState);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public unsafe delegate void SendLatestMeshCallback(int clientIndex, int* indices, int indexCount);
+
+
         #endregion
 
         public bool IsFrameRecorded = false;
@@ -132,6 +149,7 @@ namespace LiveScanServer
         public bool IsRecordedFrameReceived = false;
         public bool NoMoreRecordedFrames = true;
         public bool IsStarted = false;
+
 
         public string SerialNumber = "XXXXXXXXXXX";
         public string ClientState;
@@ -155,6 +173,13 @@ namespace LiveScanServer
         private int clientIndex;
         private IntPtr clientHandle;
 
+        // NEW — Mesh data from C++
+        public readonly object MeshLock = new object();
+        public List<int> MeshIndicesBuffer = new List<int>();   // callback writes here
+        public List<int> MeshIndices = new List<int>();         // server reads from here
+        public bool IsLatestMeshReceived = false;
+
+
         // Callbacks for client to server calls
         private SendSerialNumberCallback sendSerialNumberCallback;
         private ConfirmRecordedCallback confirmRecordedCallback;
@@ -164,6 +189,7 @@ namespace LiveScanServer
         private ConfirmSyncStateCallback confirmSyncStateCallback;
         private ConfirmMasterRestartCallback confirmMasterRestartCallback;
         private SendDocumentCallback sendDocumentCallback;
+        private SendLatestMeshCallback sendLatestMeshCallback;
 
         public CameraClient(int index)
         {
@@ -433,6 +459,51 @@ namespace LiveScanServer
             });
 
             SetSendDocumentCallback(clientHandle, sendDocumentCallback);
+        }
+
+        /*public unsafe void SetSendLatestMeshCallback()
+        {
+            sendLatestMeshCallback = new SendLatestMeshCallback((int index, int* indices, int indexCount) =>
+            {
+                if (MeshIndices.Capacity < indexCount)
+                    MeshIndices.Capacity = indexCount;
+
+                MeshIndices.Clear();
+
+                for (int i = 0; i < indexCount; i++)
+                {
+                    MeshIndices.Add(indices[i]);
+                }
+
+                IsLatestMeshReceived = true;   // ✅ mark that new mesh arrived
+            });
+
+            SetSendLatestMeshCallback(clientHandle, sendLatestMeshCallback);
+        }*/
+        public unsafe void SetSendLatestMeshCallback()
+        {
+            sendLatestMeshCallback = new SendLatestMeshCallback((int clientIndex, int* indices, int indexCount) =>
+            {
+                if (indexCount <= 0 || indices == null)
+                    return;
+
+                lock (MeshLock)
+                {
+                    MeshIndices.Clear();
+                    for (int i = 0; i < indexCount; i++)
+                        MeshIndices.Add(indices[i]);
+
+                    IsLatestMeshReceived = true;  // THIS IS REQUIRED
+                }
+            });
+
+            SetSendLatestMeshCallback(clientHandle, sendLatestMeshCallback);
+        }
+
+        public void RequestLatestMesh()
+        {
+            IsLatestMeshReceived = false;
+            RequestLatestMesh(clientHandle);
         }
 
         public void UpdateSocketState()

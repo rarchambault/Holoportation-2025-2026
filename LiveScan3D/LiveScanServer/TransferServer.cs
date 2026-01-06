@@ -28,6 +28,8 @@ namespace LiveScanServer
     {
         public List<float> Vertices = new List<float>();
         public List<byte> Colors = new List<byte>();
+        public List<int> MeshIndices = new List<int>();
+
         public DocumentInfo DocumentInfo = new DocumentInfo();
 
         private const int PointCloudPort = 48002;
@@ -47,6 +49,10 @@ namespace LiveScanServer
         private List<DocumentTransferSocket> documentClients = new List<DocumentTransferSocket>();
         private object documentClientLock = new object();
         private bool isDocumentServerRunning = false;
+
+        public object SharedMeshLock;
+
+
 
         ~TransferServer()
         {
@@ -255,21 +261,23 @@ namespace LiveScanServer
         /// </summary>
         /// <param name="token">Cancellation token to stop the Task</param>
         /// <returns>Task representing the sender</returns>
+        /// 
+
         private async Task SendPointCloudToAllClients(CancellationToken token)
         {
             while (isPointCloudServerRunning && !token.IsCancellationRequested)
             {
-                // Send latest point cloud to all connected clients
                 for (int i = 0; i < pointCloudClients.Count; i++)
                 {
-                    // Send a point cloud frame
-                    lock (Vertices)
+                    lock (SharedMeshLock)
                     {
-                        pointCloudClients[i].SendPointCloud(Vertices, Colors);
+                        System.Console.WriteLine($"[DEBUG] Server sees: Vertices={Vertices.Count}, Colors={Colors.Count}, MeshIndices={MeshIndices.Count}");
+                        pointCloudClients[i].SendPointCloud(Vertices, Colors, MeshIndices);
                     }
+                        
                 }
 
-                await Task.Delay(10);
+                await Task.Delay(10);    // ~100 FPS
             }
         }
 

@@ -3,11 +3,20 @@
 Module Name:  PointCloudRenderer.cs
 Project:      HoloLensReceiver
 Authors:      Roxanne Archambault
-Copyright (c) Canadian Space Agency.
+Adapted by:   Mahmoud Amin
 
 <Description>
-This module receives point clouds from the PointCloudReceiver, enqueues them
-and renders them.
+This module now receives FULL MESHES from the HoloportReceiver:
+    - vertices: Vector3[]
+    - colors:   Color32[]
+    - indices:  int[]   (triangle indices)
+
+It enqueues them and renders them as a standard Unity Mesh.
+
+Originally, this class rendered compressed point clouds as quads using
+a custom shader and per-point "_PointSize". With the updated LiveScan3D
+pipeline, the mesh is already triangulated on the PC side (C++/PCL),
+so we simply display it directly.
 
 This code was adapted from the following research: 
 Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive 
@@ -24,19 +33,7 @@ public class PointCloudRenderer : MonoBehaviour
 {
     public Material PointCloudMaterial;
 
-    // Indices representing the corners of each point quad
-    private static readonly float[] s_baseOffsetIndices = new float[] { 0, 1, 2, 3, 4, 5 };
-
-    private readonly List<Vector3> Vertices = new();
-    private readonly List<Color32> Colors = new();
-    private readonly List<Vector2> OffsetIndices = new();
-    private readonly List<int> Indices = new();
-
-    private const int MaxQueueSize = 5;
-
-    private const float PointScaleFnA = 170.0f;
-    private const float PointScaleFnB = 0.8f;
-    private const float PointScaleFnC = 0.002f;
+    private Mesh mesh;
 
     // Parameters used to calculate and log FPS
     private bool isStarted = false;
@@ -44,15 +41,22 @@ public class PointCloudRenderer : MonoBehaviour
     private float totalTime = 0.0f;
     private int numFrames = 0;
 
-    private Queue<(float scale, Vector3[] points, Color32[] colors)> pointCloudQueue = new();
-    private Mesh mesh;
+    // Queue of incoming meshes (vertices + colors + indices)
+    private const int MaxQueueSize = 5;
+    private readonly Queue<(Vector3[] vertices, Color32[] colors, int[] indices)> meshQueue = new();
+
+    // Optional rotation to match original orientation
     private Quaternion rotation = Quaternion.Euler(270.0f, 0f, 0);
 
     void Start()
     {
-        // Initialize point cloud mesh
+        // Initialize mesh
         this.transform.rotation = rotation;
-        mesh = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+
+        mesh = new Mesh
+        {
+            indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 // allow large meshes
+        };
         mesh.MarkDynamic(); // Hint for performance
 
         GetComponent<MeshFilter>().sharedMesh = mesh;
@@ -66,67 +70,78 @@ public class PointCloudRenderer : MonoBehaviour
             timeSinceLastRender += Time.deltaTime;
         }
 
-        // If the point cloud queue is not empty, render its first entry
-        if (pointCloudQueue.Count > 0)
+        // If we have a queued mesh, render the most recent one
+        if (meshQueue.Count > 0)
         {
-            var (scale, positions, colorData) = pointCloudQueue.Dequeue();
-            UpdateMesh(scale, positions, colorData);
+            var (vertices, colors, indices) = meshQueue.Dequeue();
+            UpdateMesh(vertices, colors, indices);
         }
     }
 
-    public void EnqueuePointCloud(float scale, Vector3[] positions, Color32[] colors)
+    /// <summary>
+    /// Enqueue a full mesh (vertices + colors + triangle indices).
+    /// Called by HoloportReceiver once a frame is decoded.
+    /// </summary>
+    public void EnqueueMesh(Vector3[] vertices, Color32[] colors, int[] indices)
     {
         isStarted = true;
 
-        // If the queue is full, dequeue the first entry to add the new one
-        if (pointCloudQueue.Count >= MaxQueueSize)
-            pointCloudQueue.Dequeue();
+        if (vertices == null || colors == null || indices == null)
+            return;
 
-        pointCloudQueue.Enqueue((scale, positions, colors));
+        // If the queue is full, drop the oldest mesh
+        if (meshQueue.Count >= MaxQueueSize)
+            meshQueue.Dequeue();
+
+        meshQueue.Enqueue((vertices, colors, indices));
     }
 
-    private void UpdateMesh(float scale, Vector3[] positions, Color32[] colorData)
+    /// <summary>
+    /// Updates the Unity Mesh with the latest frame.
+    /// </summary>
+    private void UpdateMesh(Vector3[] vertices, Color32[] colors, int[] indices)
     {
-        int pointCount = Mathf.Min(positions.Length, colorData.Length);
+        if (mesh == null)
+            return;
 
-        // Find the level of precision of the point cloud from the scale that was sent
-        float precision = 1.0f / scale;
+        int vertexCount = Mathf.Min(vertices.Length, colors.Length);
+        if (vertexCount == 0 || indices.Length == 0)
+            return;
 
-        // Make the points slightly larger than the precision to fill holes in the point cloud
-        PointCloudMaterial.SetFloat("_PointSize", PointScaleFnA * Mathf.Pow(precision, 2)  + PointScaleFnB * precision + PointScaleFnC);
+        // Trim arrays if colors are shorter than vertices
+        // (safety in case of small mismatches)
+        Vector3[] safeVertices = vertices;
+        Color32[] safeColors = colors;
 
-        // Clear all previous mesh parameters
-        mesh.Clear();
-        Vertices.Clear();
-        OffsetIndices.Clear();
-        Colors.Clear();
-        Indices.Clear();
-
-        // Add each new received point to global variables
-        for (int i = 0; i < pointCount; i++)
+        if (colors.Length != vertices.Length)
         {
-            Vector3 pos = positions[i];
-            Color32 col = colorData[i];
+            vertexCount = Mathf.Min(vertices.Length, colors.Length);
+            safeVertices = new Vector3[vertexCount];
+            safeColors = new Color32[vertexCount];
 
-            for (int j = 0; j < 6; j++)
-            {
-                Vertices.Add(pos);
-                OffsetIndices.Add(new Vector2(s_baseOffsetIndices[j], 0));
-                Colors.Add(col);
-                Indices.Add(i * 6 + j);
-            }
+            System.Array.Copy(vertices, safeVertices, vertexCount);
+            System.Array.Copy(colors, safeColors, vertexCount);
         }
 
-        // Set new mesh parameters
-        mesh.SetVertices(Vertices);
-        mesh.SetUVs(0, OffsetIndices);
-        mesh.SetColors(Colors);
-        mesh.SetIndices(Indices, MeshTopology.Triangles, 0);
+        mesh.Clear();
 
-        // Calculate and log FPS
+        // Assign mesh data
+        mesh.SetVertices(safeVertices);
+        mesh.SetColors(safeColors);
+        mesh.SetTriangles(indices, 0);
+
+        // Optionally recompute normals/bounds if needed
+        mesh.RecalculateBounds();
+        // mesh.RecalculateNormals(); // uncomment if your material needs normals
+
+        // FPS stats
         totalTime += timeSinceLastRender;
         timeSinceLastRender = 0.0f;
         numFrames++;
-        Debug.Log("Average FPS: " + numFrames / totalTime);
+
+        if (totalTime > 0.0f)
+        {
+            Debug.Log("Average FPS: " + (numFrames / totalTime));
+        }
     }
 }

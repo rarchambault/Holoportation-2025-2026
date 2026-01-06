@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <vector>
+#include <random>
 
 #include "general.h"
 
@@ -107,7 +108,7 @@ public:
         for (int i = 0; i < size_; ++i) vals_[i] = i;
 
         // shuffle the elements in the array
-        std::random_shuffle(vals_.begin(), vals_.end());
+        std::shuffle(vals_.begin(), vals_.end(), std::mt19937(std::random_device{}()));
 
         counter_ = 0;
     }

@@ -3,27 +3,15 @@
 Module Name:  HoloportReceiver.cs
 Project:      HoloLensReceiver
 Authors:      Roxanne Archambault
-Adapted by:   Mahmoud Amin
+Copyright (c) Canadian Space Agency.
 
 <Description>
-This module receives mesh data (vertices + colors + triangle indices) and
-documents from the LiveScan3D TCP server and forwards them to the appropriate
-renderers in Unity.
+This module receives point clouds and documents from a TCP server and sends 
+them to the appropriate renderers.
 
-New mesh protocol (from LiveScan3D TransferServer / PointCloudTransferSocket):
-    [int] vertexCount   (number of vertices = vertices.Count / 3)
-    [int] colorCount    (number of bytes of color data = colors.Count)
-    [int] indexCount    (number of ints in triangle index buffer)
-
-    [float] * vertexCount * 3   (X, Y, Z per vertex)
-    [byte]  * colorCount        (R, G, B per vertex)
-    [int]   * indexCount        (triangle indices)
-
-The client requests a new frame by sending a single byte: 0
-
-This code was adapted from:
-Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
-3D Data Acquisition System for Multiple Kinect v2 Sensors". in 3D Vision (3DV),
+This code was adapted from the following research: 
+Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive 
+3D Data Acquisition System for Multiple Kinect v2 Sensors". in 3D Vision (3DV), 
 2015 International Conference on, Lyon, France, 2015
 
 \***************************************************************************/
@@ -40,6 +28,15 @@ public class HoloportReceiver : MonoBehaviour
     public int PointCloudPort = 48002;
     public int DocumentPort = 48003;
     public float ConnectionRetryInterval = 10.0f;
+
+    // Parameters used to deserialize point clouds
+    private const int PointXYZDataSize = 3; // 3 bytes for (x, y, z) positions
+    private const int PointRGBDataSize = 3; // 3 bytes for (r, g, b) colors
+    private const float Range = 0.3f;
+    private const float HalfRange = Range / 2.0f;
+    private const float XRangeCenter = 0.0f;
+    private const float YRangeCenter = 0.0f;
+    private const float ZRangeCenter = HalfRange;
 
     private TcpClient pointCloudClient;
     private bool isPointCloudClientConnected = false;
@@ -60,41 +57,39 @@ public class HoloportReceiver : MonoBehaviour
         documentRenderer = GetComponent<DocumentRenderer>();
     }
 
-    private void Update()
+    void Update()
     {
-        // Try to connect point cloud client
         if (!isPointCloudClientConnecting && IsServerIPAddressSet)
         {
             isPointCloudClientConnecting = true;
             ConnectPointCloudClient();
         }
 
-        // Try to connect document client
         if (!isDocumentClientConnecting && IsServerIPAddressSet)
         {
             isDocumentClientConnecting = true;
             ConnectDocumentClient();
         }
 
-        // Retry logic for point cloud client
         if (isPointCloudClientConnecting && !isPointCloudClientConnected)
         {
             pointCloudConnectionTimer += Time.deltaTime;
 
             if (pointCloudConnectionTimer >= ConnectionRetryInterval)
             {
+                // Retry connecting at regular intervals if connection failed
                 ConnectPointCloudClient();
                 pointCloudConnectionTimer = 0.0f;
             }
         }
 
-        // Retry logic for document client
         if (isDocumentClientConnecting && !isDocumentClientConnected)
         {
             documentConnectionTimer += Time.deltaTime;
 
             if (documentConnectionTimer >= ConnectionRetryInterval)
             {
+                // Retry connecting at regular intervals if connection failed
                 ConnectDocumentClient();
                 documentConnectionTimer = 0.0f;
             }
@@ -109,16 +104,12 @@ public class HoloportReceiver : MonoBehaviour
         {
             await pointCloudClient.ConnectAsync(ServerIPAddress, PointCloudPort);
             isPointCloudClientConnected = true;
-            Debug.Log("Connected to LiveScan3D point cloud server.");
             ReceivePointClouds();
-            var mr = gameObject.GetComponent<MeshRenderer>();
-            if (mr != null) mr.enabled = true;
+            gameObject.GetComponent<MeshRenderer>().enabled = true;
         }
         catch (Exception e)
         {
             Debug.LogError("Connection to LiveScan3D point cloud server failed: " + e.Message);
-            isPointCloudClientConnected = false;
-            isPointCloudClientConnecting = false;
         }
     }
 
@@ -130,165 +121,145 @@ public class HoloportReceiver : MonoBehaviour
         {
             await documentClient.ConnectAsync(ServerIPAddress, DocumentPort);
             isDocumentClientConnected = true;
-            Debug.Log("Connected to LiveScan3D document server.");
             ReceiveDocuments();
         }
         catch (Exception e)
         {
             Debug.LogError("Connection to LiveScan3D document server failed: " + e.Message);
-            isDocumentClientConnected = false;
-            isDocumentClientConnecting = false;
         }
     }
 
-    /// <summary>
-    /// Receives FULL MESH data from the LiveScan3D server:
-    /// header (vertexCount, colorCount, indexCount)
-    /// then vertices (float3), colors (bytes), indices (ints).
-    /// </summary>
     private async void ReceivePointClouds()
     {
-        while (isPointCloudClientConnected && pointCloudClient != null && pointCloudClient.Connected)
+        while (isPointCloudClientConnected && pointCloudClient.Connected)
         {
             try
             {
-                NetworkStream stream = pointCloudClient.GetStream();
+                // Request a new frame
+                await pointCloudClient.GetStream().WriteAsync(new byte[] { 0 });
 
-                // 1) Request a new frame (1-byte handshake: 0)
-                await stream.WriteAsync(new byte[] { 0 });
-                // Header: 2 ints
-                byte[] headerBytes = await ReadAsync(pointCloudClient, sizeof(int) * 2);
+                // Read scale factor (short)
+                short scale = await ReadShortAsync(pointCloudClient);
 
-                int vertexCount = BitConverter.ToInt32(headerBytes, 0);
-                int indexCount = BitConverter.ToInt32(headerBytes, 4);
+                // Read number of points (4 bytes)
+                int numPoints = await ReadIntAsync(pointCloudClient);
 
-                // Derived color count
-                int colorCount = vertexCount * 3;
+                Debug.Log($"Received {numPoints} points with scale {scale}");
 
-                // Byte counts
-                int verticesByteCount = vertexCount * 3 * sizeof(float);
-                int colorsByteCount = colorCount * sizeof(byte);
-                int indicesByteCount = indexCount * sizeof(int);
+                // Initialize arrays for vertices and colors data
+                int verticesSize = PointXYZDataSize * numPoints;
+                int colorsSize = PointRGBDataSize * numPoints;
 
-                // Read buffers
-                byte[] verticesBytes = await ReadAsync(pointCloudClient, verticesByteCount);
-                byte[] colorsBytes = await ReadAsync(pointCloudClient, colorsByteCount);
-                byte[] indicesBytes = await ReadAsync(pointCloudClient, indicesByteCount);
+                byte[] verticesBytes = new byte[verticesSize];
+                byte[] colorsBytes = new byte[colorsSize];
 
-                // Deserialize floats
-                float[] vertsFloat = new float[vertexCount * 3];
-                Buffer.BlockCopy(verticesBytes, 0, vertsFloat, 0, verticesByteCount);
+                // Read vertices data
+                int numBytesRead = 0;
 
-                Vector3[] vertices = new Vector3[vertexCount];
-                for (int i = 0; i < vertexCount; i++)
-                {
-                    int b = i * 3;
-                    vertices[i] = new Vector3(
-                        vertsFloat[b],
-                        vertsFloat[b + 1],
-                        vertsFloat[b + 2]
-                    );
-                }
+                while (numBytesRead < verticesSize)
+                    numBytesRead += await pointCloudClient.GetStream().ReadAsync(verticesBytes, numBytesRead, Math.Min(verticesSize - numBytesRead, 64000));
 
-                // Deserialize colors
-                Color32[] colors = new Color32[vertexCount];
-                for (int i = 0; i < vertexCount; i++)
-                {
-                    int b = i * 3;
-                    colors[i] = new Color32(
-                        colorsBytes[b],
-                        colorsBytes[b + 1],
-                        colorsBytes[b + 2],
-                        255
-                    );
-                }
+                // Read color data
+                numBytesRead = 0;
 
-                // Deserialize indices
-                int[] meshIndices = new int[indexCount];
-                Buffer.BlockCopy(indicesBytes, 0, meshIndices, 0, indicesByteCount);
+                while (numBytesRead < colorsSize)
+                    numBytesRead += await pointCloudClient.GetStream().ReadAsync(colorsBytes, numBytesRead, Math.Min(colorsSize - numBytesRead, 64000));
 
-                Debug.Log($"Received mesh: {vertexCount} verts, {indexCount / 3} triangles.");
+                Vector3[] vertices;
+                Color32[] colors;
 
-                pointCloudRenderer.EnqueueMesh(vertices, colors, meshIndices);
-
+                DeserializePointCloud(numPoints, scale, verticesBytes, colorsBytes, out vertices, out colors);
+                pointCloudRenderer.EnqueuePointCloud(scale, vertices, colors);
             }
-            catch (Exception e)
+            catch (Exception)
             {
-                Debug.LogError("Error while receiving mesh: " + e.Message);
-
                 if (!pointCloudClient.Connected && isPointCloudClientConnected)
                 {
+                    // The socket was disconnected while trying to receive a point cloud; close the socket and hide the renderer
                     isPointCloudClientConnecting = false;
                     isPointCloudClientConnected = false;
-
-                    try
-                    {
-                        pointCloudClient.Close();
-                        pointCloudClient.Dispose();
-                    }
-                    catch { }
-
-                    var mr = gameObject.GetComponent<MeshRenderer>();
-                    if (mr != null) mr.enabled = false;
+                    pointCloudClient.Close();
+                    pointCloudClient.Dispose();
+                    gameObject.GetComponent<MeshRenderer>().enabled = false;
                 }
             }
         }
     }
 
-    /// <summary>
-    /// Receives document images (unchanged protocol).
-    /// </summary>
     private async void ReceiveDocuments()
     {
-        while (isDocumentClientConnected && documentClient != null && documentClient.Connected)
+        while (isDocumentClientConnected && documentClient.Connected)
         {
             try
             {
-                // Read width (short)
+                // Read width
                 short width = await ReadShortAsync(documentClient);
 
-                // Read height (short)
+                // Read height 
                 short height = await ReadShortAsync(documentClient);
 
-                // Read data size (int)
                 int dataSize = await ReadIntAsync(documentClient);
 
-                Debug.Log($"Received document with width {width}, height {height}, size {dataSize}");
+                Debug.Log($"Received document with width {width} and height {height}, size {dataSize}");
+
+                // Initialize array for document data
+                byte[] dataBytes = new byte[dataSize];
 
                 // Read document data
-                byte[] dataBytes = await ReadAsync(documentClient, dataSize);
+                int numBytesRead = 0;
 
-                if (documentRenderer != null)
-                {
-                    documentRenderer.EnqueueDocument(width, height, dataBytes);
-                }
+                while (numBytesRead < dataSize)
+                    numBytesRead += await documentClient.GetStream().ReadAsync(dataBytes, numBytesRead, Math.Min(dataSize - numBytesRead, 64000));
+
+                documentRenderer.EnqueueDocument(width, height, dataBytes);
             }
-            catch (Exception e)
+            catch (Exception)
             {
-                Debug.LogError("Error while receiving document: " + e.Message);
-
                 if (!documentClient.Connected && isDocumentClientConnected)
                 {
+                    // The socket was disconnected while trying to receive a document; close the socket
                     isDocumentClientConnecting = false;
                     isDocumentClientConnected = false;
-
-                    try
-                    {
-                        documentClient.Close();
-                        documentClient.Dispose();
-                    }
-                    catch { }
+                    documentClient.Close();
+                    documentClient.Dispose();
                 }
             }
         }
     }
 
-    // ---- Helper methods for reading from TCP ----
+    private void DeserializePointCloud(int numPoints, float scale, byte[] verticesBytes, byte[] colorsBytes, out Vector3[] vertices, out Color32[] colors)
+    {
+        vertices = new Vector3[numPoints];
+        colors = new Color32[numPoints];
+
+        // Deserialize position data
+        for (int i = 0; i < numPoints; i++)
+        {
+            int offset = i * PointXYZDataSize;
+            float x = DecodeByteToFloat(verticesBytes[offset], XRangeCenter, scale);
+            float y = -1.0f * DecodeByteToFloat(verticesBytes[offset + 1], YRangeCenter, scale); // Flip Y axis to get the right orientation
+            float z = DecodeByteToFloat(verticesBytes[offset + 2], ZRangeCenter, scale);
+
+            vertices[i] = new Vector3(x, y, z);
+        }
+
+        // Deserialize color data
+        for (int i = 0; i < numPoints; i++)
+        {
+            int colorOffset = i * PointRGBDataSize;
+            byte r = colorsBytes[colorOffset];
+            byte g = colorsBytes[colorOffset + 1];
+            byte b = colorsBytes[colorOffset + 2];
+
+            colors[i] = new Color32(r, g, b, 255);
+        }
+    }
 
     private async Task<short> ReadShortAsync(TcpClient client)
     {
         int numBytesToRead = sizeof(short);
         byte[] buffer = await ReadAsync(client, numBytesToRead);
+
         return BitConverter.ToInt16(buffer, 0);
     }
 
@@ -296,61 +267,38 @@ public class HoloportReceiver : MonoBehaviour
     {
         int numBytesToRead = sizeof(int);
         byte[] buffer = await ReadAsync(client, numBytesToRead);
+
         return BitConverter.ToInt32(buffer, 0);
     }
 
-    /// <summary>
-    /// Reads exactly numBytesToRead bytes from the TCP stream.
-    /// </summary>
     private async Task<byte[]> ReadAsync(TcpClient client, int numBytesToRead)
     {
         byte[] buffer = new byte[numBytesToRead];
         int numBytesRead = 0;
 
-        NetworkStream stream = client.GetStream();
-
         while (numBytesRead < numBytesToRead)
         {
-            int read = await stream.ReadAsync(buffer, numBytesRead, numBytesToRead - numBytesRead);
-            if (read == 0)
-            {
-                // Connection closed
-                throw new Exception("Socket closed while reading.");
-            }
-            numBytesRead += read;
+            numBytesRead += await client.GetStream().ReadAsync(buffer, numBytesRead, numBytesToRead - numBytesRead);
         }
 
         return buffer;
+    }
+
+    private float DecodeByteToFloat(byte encoded, float rangeCenter, float scale)
+    {
+        return encoded / scale - HalfRange + rangeCenter;
     }
 
     private void OnDestroy()
     {
         isPointCloudClientConnecting = false;
         isPointCloudClientConnected = false;
-
-        if (pointCloudClient != null)
-        {
-            try
-            {
-                pointCloudClient.Close();
-                pointCloudClient.Dispose();
-            }
-            catch { }
-            pointCloudClient = null;
-        }
+        pointCloudClient.Close();
+        pointCloudClient.Dispose();
 
         isDocumentClientConnecting = false;
         isDocumentClientConnected = false;
-
-        if (documentClient != null)
-        {
-            try
-            {
-                documentClient.Close();
-                documentClient.Dispose();
-            }
-            catch { }
-            documentClient = null;
-        }
+        documentClient.Close();
+        documentClient.Dispose();
     }
 }

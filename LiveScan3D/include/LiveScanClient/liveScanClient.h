@@ -57,12 +57,11 @@ public:
     void DisableSync();
     void StartMaster();
     void RequestExit();
-    void RequestLatestMesh();
 
     std::function<void(const std::string&)> GetLogger();
 
 private:
-    const float Range = 1.5f;
+    const float Range = 0.3f;
     const float HalfRange = Range / 2.0f;
     const float MinPrecision = Range / 255; // Min precision (max resolution) with the set range and the number of values in a byte (255)
     const int GridResolution = Range / MinPrecision;
@@ -107,9 +106,6 @@ private:
 
     std::vector<Point3s> lastFrameVertices;
     std::vector<RGB> lastFrameColors;
-    std::vector<float> lastFrameMeshVertices;
-    std::vector<int> lastFrameMeshIndices;
-
 
     cv::Mat lastDocumentData;
     float lastDocumentScore;
@@ -129,7 +125,6 @@ private:
     void ConfirmRecorded();
     void ConfirmCalibrated();
     void SendLatestFrame();
-    void SendLatestMesh();
     void SendRecordedFrame(vector<Point3s>& vertices, vector<RGB>& RGB, bool noMoreFrames);
     void ConfirmSyncState();
     void ConfirmMasterRestart();

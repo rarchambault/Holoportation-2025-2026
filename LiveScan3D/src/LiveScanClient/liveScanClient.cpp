@@ -28,12 +28,6 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 #include <chrono>
 #include <iomanip>
 #include <sstream>
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-#include <pcl/surface/gp3.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/search/kdtree.h>
-
 
 LiveScanClient::LiveScanClient(int index) :
 	clientIndex(index),
@@ -419,7 +413,6 @@ void LiveScanClient::ProcessFrame()
 {
 	unsigned int numVertices = captureManager->lastFrameVertices.size();
 
-	Log("vertices count: " + std::to_string(numVertices));
 	// To save some processing cost, we allocate a full frame size (numVertices) of a Point3f Vector beforehand
 	// instead of using push_back for each vertex. Even though we have to copy the vertices into a clean array
 	// later and it uses a little bit more RAM, this gives us a nice speed increase for this function, around 25-50%.
@@ -439,14 +432,12 @@ void LiveScanClient::ProcessFrame()
 
 		if (calibration.isCalibrated)
 		{
-			
 			// Rotate the point to match the calibration
 			temp.X += calibration.worldT[0];
 			temp.Y += calibration.worldT[1];
 			temp.Z += calibration.worldT[2];
 			temp = RotatePoint(temp, calibration.worldR);
 
-			
 			// Remove the point if it is outside the bounds specified in the settings
 			if (temp.X < bounds[0] || temp.X > bounds[3]
 				|| temp.Y < bounds[1] || temp.Y > bounds[4]
@@ -455,16 +446,12 @@ void LiveScanClient::ProcessFrame()
 				allVertices[vertexIndex] = invalidPoint;
 				continue;
 			}
-			
-			
 			// Only keep the point if there is not already data for the same reduced point when considering the range
 			else if (!voxelGridFilter.Insert(temp.X, temp.Y, temp.Z))
 			{
 				allVertices[vertexIndex] = invalidPoint;
 				continue;
-			} 
-
-			voxelGridFilter.Insert(temp.X, temp.Y, temp.Z);
+			}
 		}
 
 		allVertices[vertexIndex] = temp;
@@ -472,8 +459,8 @@ void LiveScanClient::ProcessFrame()
 	}
 
 	// Apply simple voxel density-based filter
-	const float voxelSize = 0.02f;
-	const int minPointsPerVoxel = 1;
+	const float voxelSize = 0.006f;
+	const int minPointsPerVoxel = 12;
 
 	// Count points per voxel
 	std::map<uint64_t, int> voxelCounts;
@@ -548,154 +535,6 @@ void LiveScanClient::ProcessFrame()
 
 	lastFrameVertices = goodVerticesShort;
 	lastFrameColors = goodColorPoints;
-
-	Log("last frame vertices count: " + std::to_string(lastFrameVertices.size()));
-
-	using pcl::PointCloud;
-	using pcl::PointXYZ;
-	using pcl::GreedyProjectionTriangulation;
-	using pcl::search::KdTree;
-
-	Log("library works");
-
-	// Convert into PCL point cloud
-	pcl::PointCloud<PointXYZ>::Ptr cloud(new pcl::PointCloud<PointXYZ>());
-	cloud->reserve(goodVertices.size());
-
-	for (auto& p : goodVertices)
-		cloud->push_back(PointXYZ(p.X, p.Y, p.Z));
-
-	Log("convert into pcl point cloud works");
-
-	// Normal estimation
-	pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>());
-	pcl::NormalEstimation<PointXYZ, pcl::Normal> ne;
-	ne.setInputCloud(cloud);
-	pcl::search::KdTree<PointXYZ>::Ptr normalTree(new pcl::search::KdTree<PointXYZ>());
-	ne.setSearchMethod(normalTree);
-
-	// Automatically choose KSearch <= cloud size
-	size_t kSearch = std::min<size_t>(20, cloud->size());
-	ne.setKSearch(kSearch);
-	ne.compute(*normals);
-
-	Log("normal estimation works");
-
-	pcl::PointCloud<pcl::PointNormal>::Ptr cloudWithNormals(new pcl::PointCloud<pcl::PointNormal>());
-
-	for (size_t i = 0; i < cloud->size(); i++)
-	{
-		pcl::PointNormal pn;
-		pn.x = cloud->points[i].x;
-		pn.y = cloud->points[i].y;
-		pn.z = cloud->points[i].z;
-
-		if (i < normals->size())
-		{
-			pn.normal_x = normals->points[i].normal_x;
-			pn.normal_y = normals->points[i].normal_y;
-			pn.normal_z = normals->points[i].normal_z;
-		}
-		else
-		{
-			pn.normal_x = 0.f;
-			pn.normal_y = 0.f;
-			pn.normal_z = 0.f;
-			Log("Point " + std::to_string(i) + " has no computed normal, using 0.");
-		}
-
-		// Only check xyz for finiteness
-		if (pcl::isFinite(cloud->points[i]))
-			cloudWithNormals->points.push_back(pn);
-		else
-			Log("Point " + std::to_string(i) + " has NaN or Inf in coordinates!");
-	}
-
-	if (!cloudWithNormals->empty())
-		Log("All points are finite.");
-	else
-	{
-		Log("ERROR: cloudWithNormals is empty after filtering!");
-		return;
-	}
-
-	Log("concatenation works");
-
-	// Create a proper KdTree for PointNormal
-	pcl::search::KdTree<pcl::PointNormal>::Ptr tree(new pcl::search::KdTree<pcl::PointNormal>());
-	tree->setInputCloud(cloudWithNormals);
-
-	// Triangulation
-	pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
-	pcl::PolygonMesh mesh;
-
-	Log("gp3 works");
-
-	gp3.setSearchRadius(0.1f); 
-	gp3.setMu(2.5f);
-	gp3.setMaximumNearestNeighbors(50);
-	gp3.setMaximumSurfaceAngle(M_PI / 4);
-	gp3.setMinimumAngle(M_PI / 18);
-	gp3.setMaximumAngle(2 * M_PI / 3);
-	gp3.setNormalConsistency(false);
-
-	Log("gp3 parameters work");
-
-	gp3.setInputCloud(cloudWithNormals);
-	Log("input cloud works");
-
-	gp3.setSearchMethod(tree);
-	Log("search method works");
-
-	try
-	{
-		gp3.reconstruct(mesh);
-		Log("mesh reconstruction works");
-	}
-	catch (const std::exception& e)
-	{
-		Log(std::string("Mesh reconstruction failed: ") + e.what());
-	}
-	catch (...)
-	{
-		Log("Mesh reconstruction failed: unknown error");
-	}
-
-	// Convert mesh to float arrays for Unity (xyz + triangle indices)
-	lastFrameMeshVertices.clear();
-	lastFrameMeshIndices.clear();
-
-	pcl::PointCloud<pcl::PointXYZ> meshVerts;
-	pcl::fromPCLPointCloud2(mesh.cloud, meshVerts);
-
-	for (auto& v : meshVerts.points)
-	{
-		lastFrameMeshVertices.push_back(v.x);
-		lastFrameMeshVertices.push_back(v.y);
-		lastFrameMeshVertices.push_back(v.z);
-	}
-
-	for (const auto& poly : mesh.polygons)
-	{
-		if (poly.vertices.size() == 3)
-		{
-			lastFrameMeshIndices.push_back(poly.vertices[0]);
-			lastFrameMeshIndices.push_back(poly.vertices[1]);
-			lastFrameMeshIndices.push_back(poly.vertices[2]);
-		}
-	}
-
-	Log("conversion works");
-
-	Log(
-		"[LiveScanClient] Mesh: " +
-		std::to_string(lastFrameMeshVertices.size() / 3) + " vertices, " +
-		std::to_string(lastFrameMeshIndices.size() / 3) + " triangles"
-	);
-
-	//notify Unity that a new mesh is ready
-	//SendLatestMesh();
-
 }
 
 void LiveScanClient::ProcessDocument()
@@ -760,9 +599,9 @@ float LiveScanClient::ComputeImageDifference(cv::Mat& newDocumentData)
 	cv::cvtColor(diff, grayDiff, cv::COLOR_BGR2GRAY);
 
 	// Compute mean difference
-	double meanDiff = cv::mean(grayDiff)[0]; // average intensity difference (0?55)
+	double meanDiff = cv::mean(grayDiff)[0]; // average intensity difference (0–255)
 
-	// Normalize to 0.0?.0
+	// Normalize to 0.0–1.0
 	float normalizedDiff = static_cast<float>(meanDiff / 255.0);
 
 	// Update stored frame
@@ -818,28 +657,7 @@ void LiveScanClient::SendLatestFrame()
 
 		wrapper->sendLatestFrameCallback(clientIndex, lastFrameVertices.data(), lastFrameColors.data(), count);
 	}
-
-
 }
-
-void LiveScanClient::SendLatestMesh()
-{
-	if (wrapper && wrapper->sendLatestMeshCallback)
-	{
-		wrapper->sendLatestMeshCallback(
-			clientIndex,
-			lastFrameMeshIndices.data(),
-			(int)lastFrameMeshIndices.size()
-		);
-	}
-	Log(">>> [C++] SendLatestMesh() CALLED with " + std::to_string(lastFrameMeshIndices.size() / 3) + " triangles");
-}
-
-void LiveScanClient::RequestLatestMesh()
-{
-	SendLatestMesh();
-}
-
 
 void LiveScanClient::SendRecordedFrame(std::vector<Point3s>& vertices, std::vector<RGB>& RGB, bool noMoreFrames)
 {

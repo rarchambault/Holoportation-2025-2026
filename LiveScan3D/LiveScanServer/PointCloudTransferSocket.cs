@@ -39,7 +39,7 @@ namespace LiveScanServer
 
         public PointCloudTransferSocket(TcpClient clientSocket) : base(clientSocket) { }
 
-        public void SendPointCloud(List<float> vertices, List<byte> colors)
+        public void SendPointCloud(List<float> vertices, List<byte> colors, List<int> indices)
         {
             // Receive 1 byte to check that the receiver has requested a new frame
             byte[] requestBuffer = Receive(1);
@@ -56,6 +56,9 @@ namespace LiveScanServer
                     HashSet<(byte, byte, byte)> uniquePoints = new HashSet<(byte, byte, byte)>();
                     List<byte> filteredVertices = new List<byte>();
                     List<byte> filteredColors = new List<byte>();
+
+                    // Map from original vertex index (i / 3) to filtered vertex index
+                    Dictionary<int, int> originalToFilteredIndex = new Dictionary<int, int>();
 
                     for (int i = 0; i < vertices.Count; i += 3)
                     {
@@ -81,6 +84,13 @@ namespace LiveScanServer
                         // If no other point mapped to this reduced position yet, add the point to the filtered result
                         if (uniquePoints.Add(point))
                         {
+                            // Compute the new filtered vertex index BEFORE adding these 3 bytes
+                            int newFilteredIndex = filteredVertices.Count / 3;
+
+                            // Store mapping from original vertex index to filtered vertex index
+                            int originalIndex = i / 3;
+                            originalToFilteredIndex[originalIndex] = newFilteredIndex;
+
                             filteredVertices.Add(bx);
                             filteredVertices.Add(by);
                             filteredVertices.Add(bz);
@@ -94,8 +104,33 @@ namespace LiveScanServer
                     }
 
                     int numVerticesToSend = filteredVertices.Count / 3;
-                    byte[] buffer = new byte[sizeof(byte) * filteredVertices.Count];
-                    Buffer.BlockCopy(filteredVertices.ToArray(), 0, buffer, 0, buffer.Length);
+                    byte[] vertexBuffer = new byte[sizeof(byte) * filteredVertices.Count];
+                    Buffer.BlockCopy(filteredVertices.ToArray(), 0, vertexBuffer, 0, vertexBuffer.Length);
+
+                    // Now build filtered indices so they refer to the filteredVertices list
+                    List<int> filteredIndices = new List<int>();
+
+                    // We only keep triangles where all 3 original indices survived filtering
+                    for (int i = 0; i + 2 < indices.Count; i += 3)
+                    {
+                        int i0 = indices[i];
+                        int i1 = indices[i + 1];
+                        int i2 = indices[i + 2];
+
+                        if (originalToFilteredIndex.TryGetValue(i0, out int fi0) &&
+                            originalToFilteredIndex.TryGetValue(i1, out int fi1) &&
+                            originalToFilteredIndex.TryGetValue(i2, out int fi2))
+                        {
+                            filteredIndices.Add(fi0);
+                            filteredIndices.Add(fi1);
+                            filteredIndices.Add(fi2);
+                        }
+                        // If any of the 3 vertices were filtered out, we drop that triangle completely
+                    }
+
+                    int numTrianglesToSend = filteredIndices.Count / 3;
+                    byte[] indexBuffer = new byte[filteredIndices.Count * sizeof(int)];
+                    Buffer.BlockCopy(filteredIndices.ToArray(), 0, indexBuffer, 0, indexBuffer.Length);
 
                     try
                     {
@@ -107,11 +142,18 @@ namespace LiveScanServer
                         WriteInt(numVerticesToSend);
 
                         // Send vertices and colors
-                        socket.GetStream().Write(buffer, 0, buffer.Length);
+                        socket.GetStream().Write(vertexBuffer, 0, vertexBuffer.Length);
                         socket.GetStream().Write(filteredColors.ToArray(), 0, filteredColors.Count);
+
+                        // Send number of triangles
+                        WriteInt(numTrianglesToSend);
+
+                        // Send indices (as 32 bit ints)
+                        socket.GetStream().Write(indexBuffer, 0, indexBuffer.Length);
                     }
                     catch (Exception ex)
                     {
+                        Logger.Log("Error while sending point cloud data: " + ex.Message);
                     }
                 }
 
@@ -119,6 +161,7 @@ namespace LiveScanServer
                 requestBuffer = Receive(1);
             }
         }
+
 
         // Determine scale based on number of vertices
         private short DetermineScale(int vertexCount)

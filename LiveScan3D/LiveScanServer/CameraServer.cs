@@ -19,6 +19,7 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace LiveScanServer
@@ -178,6 +179,7 @@ namespace LiveScanServer
                 client.SetConfirmRecordedCallback();
                 client.SetConfirmCalibratedCallback(OnConfirmCalibrated);
                 client.SetSendLatestFrameCallback();
+                client.SetSendLatestMeshCallback();
                 client.SetSendRecordedFrameCallback();
                 client.SetConfirmSyncStateCallback(OnConfirmSyncState);
                 client.SetConfirmMasterRestartCallback(OnConfirmMasterRestart);
@@ -464,6 +466,87 @@ namespace LiveScanServer
                 foreach (var client in liveScanClients)
                 {
                     client.ClearRecordedFrames();
+                }
+            }
+        }
+
+        public void GetMeshIndices(ref List<List<int>> perCamIndices)
+        {
+            // Make sure the output list exists
+            if (perCamIndices == null)
+                perCamIndices = new List<List<int>>();
+
+            perCamIndices.Clear();
+
+            // --- 1) Take a SNAPSHOT of the client list under the lock ---
+            List<CameraClient> clientsSnapshot;
+            lock (clientLock)
+            {
+                clientsSnapshot = new List<CameraClient>(liveScanClients);
+                Logger.Log($"[DEBUG] GetMeshIndices: snapshot contains {clientsSnapshot.Count} clients.");
+
+                // Reset mesh flags and send requests on the snapshot
+                foreach (var client in clientsSnapshot)
+                {
+                    client.IsLatestMeshReceived = false;
+                }
+
+                for (int i = 0; i < clientsSnapshot.Count; i++)
+                {
+                    var client = clientsSnapshot[i];
+                    Logger.Log($"Requesting latest mesh from client #{i}");
+                    client.RequestLatestMesh();
+                }
+            }
+
+            // --- 2) Wait for responses, with timeout, using the snapshot ---
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            const int TIMEOUT_MS = 50;
+
+            while (true)
+            {
+                bool allReady = true;
+
+                lock (clientLock)
+                {
+                    foreach (var client in clientsSnapshot)
+                    {
+                        if (!client.IsLatestMeshReceived)
+                        {
+                            allReady = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (allReady)
+                    break;
+
+                if (sw.ElapsedMilliseconds > TIMEOUT_MS)
+                {
+                    Logger.Log("[WARN] GetMeshIndices timeout — using partial meshes");
+                    break;
+                }
+
+                Thread.Sleep(1);
+            }
+
+            // --- 3) Copy meshes out, again iterating over the snapshot ---
+            lock (clientLock)
+            {
+                foreach (var client in clientsSnapshot)
+                {
+                    lock (client.MeshLock)
+                    {
+                        if (client.MeshIndices != null)
+                        {
+                            perCamIndices.Add(new List<int>(client.MeshIndices));
+                        }
+                        else
+                        {
+                            perCamIndices.Add(new List<int>());
+                        }
+                    }
                 }
             }
         }

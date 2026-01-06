@@ -51,6 +51,7 @@ public:
     void SetSettings(const CameraSettings& settings);
     void RequestRecordedFrame();
     void RequestLatestFrame();
+    void RequestLatestMesh();
     void ReceiveCalibration(const AffineTransform& transform);
     void ClearRecordedFrames();
     void EnableSync(int syncState, int syncOffset);

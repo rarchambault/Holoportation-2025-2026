@@ -172,6 +172,12 @@ void LiveScanClient::RequestLatestFrame()
 	SendLatestFrame();
 }
 
+void LiveScanClient::RequestLatestMesh()
+{
+	SendLatestMesh();
+	//Log("RequestLatestMesh not implemented yet.");
+}
+
 void LiveScanClient::ReceiveCalibration(const AffineTransform& transform)
 {
 	for (int i = 0; i < 3; i++)
@@ -608,6 +614,7 @@ void LiveScanClient::ProcessFrame()
 			Log("Point " + std::to_string(i) + " has NaN or Inf in coordinates!");
 	}
 
+	/*
 	if (!cloudWithNormals->empty())
 		Log("All points are finite.");
 	else
@@ -615,6 +622,7 @@ void LiveScanClient::ProcessFrame()
 		Log("ERROR: cloudWithNormals is empty after filtering!");
 		return;
 	}
+	*/
 
 	// Create a proper KdTree for PointNormal
 	pcl::search::KdTree<pcl::PointNormal>::Ptr tree(new pcl::search::KdTree<pcl::PointNormal>());
@@ -675,11 +683,11 @@ void LiveScanClient::ProcessFrame()
 		}
 	}
 
-	Log(
+	/*Log(
 		"[LiveScanClient] Mesh: " +
 		std::to_string(lastFrameMeshVertices.size() / 3) + " vertices, " +
 		std::to_string(lastFrameMeshIndices.size() / 3) + " triangles"
-	);
+	);*/
 
 	using json = nlohmann::json;
 
@@ -730,12 +738,12 @@ void LiveScanClient::ProcessFrame()
 		out << j.dump(4);        // pretty-print with 4 spaces
 		out.close();
 
-		Log("Saved frame to frame.json");
+		//Log("Saved frame to frame.json");
 	}
 
 	frameCounter++;
 
-	Log(std::to_string(frameCounter));
+	//Log(std::to_string(frameCounter));
 }
 
 void LiveScanClient::ProcessDocument()
@@ -872,6 +880,7 @@ void LiveScanClient::SendLatestMesh()
 			(int)lastFrameMeshIndices.size()
 		);
 	}
+	Log(">>> [C++] SendLatestMesh() CALLED with " + std::to_string(lastFrameMeshIndices.size() / 3) + " triangles");
 }
 
 void LiveScanClient::SendRecordedFrame(std::vector<Point3s>& vertices, std::vector<RGB>& RGB, bool noMoreFrames)

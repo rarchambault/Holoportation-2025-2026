@@ -55,6 +55,9 @@ namespace LiveScanServer
         private static extern void RequestLatestFrame(IntPtr handle);
 
         [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void RequestLatestMesh(IntPtr handle);
+
+        [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void ReceiveCalibration(IntPtr handle, ref NativeAffineTransform calibration);
 
         [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -85,6 +88,9 @@ namespace LiveScanServer
         private static extern void SetSendLatestFrameCallback(IntPtr handle, SendLatestFrameCallback callback);
 
         [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void SetSendLatestMeshCallback(IntPtr handle, SendLatestMeshCallback callback);
+
+        [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void SetSendRecordedFrameCallback(IntPtr handle, SendRecordedFrameCallback callback);
 
         [DllImport("LiveScanClient.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -108,6 +114,9 @@ namespace LiveScanServer
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public unsafe delegate void SendLatestFrameCallback(int clientIndex, Point3s* vertices, RGB* colors, int count);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public unsafe delegate void SendLatestMeshCallback(int clientIndex, int* indices, int indexCount);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public unsafe delegate void SendRecordedFrameCallback(int clientIndex, Point3s* vertices, RGB* colors, int count, byte noMoreFrames);
@@ -155,6 +164,11 @@ namespace LiveScanServer
         private int clientIndex;
         private IntPtr clientHandle;
 
+        public readonly object MeshLock = new object();
+        public List<int> MeshIndicesBuffer = new List<int>();   // callback writes here
+        public List<int> MeshIndices = new List<int>();         // server reads from here
+        public bool IsLatestMeshReceived = false;
+
         // Callbacks for client to server calls
         private SendSerialNumberCallback sendSerialNumberCallback;
         private ConfirmRecordedCallback confirmRecordedCallback;
@@ -164,6 +178,7 @@ namespace LiveScanServer
         private ConfirmSyncStateCallback confirmSyncStateCallback;
         private ConfirmMasterRestartCallback confirmMasterRestartCallback;
         private SendDocumentCallback sendDocumentCallback;
+        private SendLatestMeshCallback sendLatestMeshCallback;
 
         public CameraClient(int index)
         {
@@ -217,6 +232,12 @@ namespace LiveScanServer
         public void RequestRecordedFrame() => RequestRecordedFrame(clientHandle);
         
         public void RequestLatestFrame() => RequestLatestFrame(clientHandle);
+
+        public void RequestLatestMesh()
+        {
+            IsLatestMeshReceived = false;
+            RequestLatestMesh(clientHandle);
+        }
 
         public void ReceiveCalibration()
         {
@@ -333,6 +354,30 @@ namespace LiveScanServer
             });
 
             SetSendLatestFrameCallback(clientHandle, sendLatestFrameCallback);
+        }
+
+        public unsafe void SetSendLatestMeshCallback()
+        {
+
+            sendLatestMeshCallback = new SendLatestMeshCallback((int clientIndex, int* indices, int indexCount) =>
+            {
+                
+                if (indexCount <= 0 || indices == null)
+                    return;
+
+                lock (MeshLock)
+                {
+                    MeshIndices.Clear();
+                    for (int i = 0; i < indexCount; i++)
+                        MeshIndices.Add(indices[i]);
+
+                    IsLatestMeshReceived = true;  // THIS IS REQUIRED
+                }
+
+                Logger.Log("Received latest mesh with " + indexCount + " indices from client " + clientIndex.ToString());
+            });
+
+            SetSendLatestMeshCallback(clientHandle, sendLatestMeshCallback);
         }
 
         public unsafe void SetSendRecordedFrameCallback()

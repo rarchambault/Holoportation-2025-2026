@@ -68,6 +68,9 @@ namespace LiveScanServer
         // Recorded frame vertices from each camera, separated in lists
         private List<List<float>> cameraRecordedVertices = new List<List<float>>();
 
+        private List<int> meshIndices = new List<int>();
+        private List<List<int>> cameraMeshIndices = new List<List<int>>();
+
         // Color data from all of the cameras
         private List<byte> colors = new List<byte>();
 
@@ -103,6 +106,7 @@ namespace LiveScanServer
             // Set the transfer server to point to the same vertices and colors lists to avoid copying large arrays in memory
             transferServer.Vertices = vertices;
             transferServer.Colors = colors;
+            transferServer.MeshIndices = meshIndices;
 
             transferServer.DocumentInfo = cameraServer.DocumentInfo;
 
@@ -283,6 +287,7 @@ namespace LiveScanServer
                 lock (cameraVertices)
                 {
                     cameraServer.GetLatestFrame(ref cameraColors, ref cameraVertices);
+                    cameraServer.GetMeshIndices(ref cameraMeshIndices);
                 }
 
                 // Update the local lists representing the latest frame
@@ -291,12 +296,34 @@ namespace LiveScanServer
                     vertices.Clear();
                     colors.Clear();
                     cameraPoses.Clear();
+                    meshIndices.Clear();
+
 
                     // Add vertices and colors from each camera to the encompassing list
+                    int vertexOffset = 0;
+
                     for (int i = 0; i < cameraColors.Count; i++)
                     {
-                        vertices.AddRange(cameraVertices[i]);
-                        colors.AddRange(cameraColors[i]);
+                        var camVerts = cameraVertices[i];
+                        var camColors = cameraColors[i];
+                        var camMeshIndices = (i < cameraMeshIndices.Count) ? cameraMeshIndices[i] : null;
+
+                        //Logger.Log("Camera " + i.ToString() + ": " + (camVerts.Count / 3).ToString() + " vertices.");
+
+                        vertices.AddRange(camVerts);
+                        colors.AddRange(camColors);
+
+                        int camVertexCount = camVerts.Count / 3;
+
+                        if (camMeshIndices != null)
+                        {
+                            foreach (var idx in camMeshIndices)
+                            {
+                                meshIndices.Add(idx + vertexOffset);
+                            }
+                        }
+
+                        vertexOffset += camVertexCount;
                     }
 
                     cameraPoses.AddRange(cameraServer.CameraPoses);

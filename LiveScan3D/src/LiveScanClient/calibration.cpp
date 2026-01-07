@@ -178,7 +178,7 @@ static bool PassMarkerSampleGates(
 /// <param name="frameWidth">Width of the color and depth frames</param>
 /// <param name="frameHeight">Height of the color  and depth frames</param>
 /// <returns></returns>
-bool Calibration::Calibrate(RGB *colorFrame, Point3f *depthFrame, int frameWidth, int frameHeight)
+bool Calibration::Calibrate(RGB* colorFrame, Point3f* depthFrame, int frameWidth, int frameHeight)
 {
 	if (colorFrame == NULL || depthFrame == NULL) {
 		return false;
@@ -220,32 +220,21 @@ bool Calibration::Calibrate(RGB *colorFrame, Point3f *depthFrame, int frameWidth
 
 	if (!success)
 	{
-		if (logFn) logFn("Calibration: Get3DMarkerCorners failed (insufficient valid depth near marker corners).");
 		return false;
 	}
 
 	if (!PassMarkerSampleGates(marker, marker3D))
-	{
-		if (logFn) logFn("Calibration: marker sample rejected by sanity gates (likely bad depth / skew).");
 		return false;
-	}
 
 
 	// Save the found marker position and wait until enough samples have been saved
 	markerSamplePositions.push_back(marker3D);
 	numSamples++;
 
-	// Safety: cap buffer to NumRequiredSamples (in case logic changes or settings mismatch)
-	if ((int)markerSamplePositions.size() > NumRequiredSamples)
-	{
-		markerSamplePositions.erase(markerSamplePositions.begin());
-		numSamples = (int)markerSamplePositions.size();
-	}
-
 	if (numSamples < NumRequiredSamples) {
 		return false;
 	}
-		
+
 	// Calculate the average 3D position of the marker from all samples
 	// --- Robust frame outlier rejection + averaging ---
 // 1) Build a robust per-corner reference using the median across samples.
@@ -354,7 +343,7 @@ bool Calibration::Calibrate(RGB *colorFrame, Point3f *depthFrame, int frameWidth
 /// </summary>
 /// <param name="serialNumber">Serial number of the current camera</param>
 /// <returns></returns>
-bool Calibration::LoadCalibration(const string &serialNumber)
+bool Calibration::LoadCalibration(const string& serialNumber)
 {
 	ifstream file;
 	file.open("calibration_" + serialNumber + ".txt");
@@ -381,7 +370,7 @@ bool Calibration::LoadCalibration(const string &serialNumber)
 /// Saves the current calibration to a file.
 /// </summary>
 /// <param name="serialNumber">Serial number of the current camera</param>
-void Calibration::SaveCalibration(const string &serialNumber)
+void Calibration::SaveCalibration(const string& serialNumber)
 {
 	ofstream file;
 	file.open("calibration_" + serialNumber + ".txt");
@@ -421,7 +410,7 @@ void Calibration::SetLogger(std::function<void(const std::string&)> loggerFunc) 
 /// <param name="markerInWorld">Position of the marker in camera</param>
 /// <param name="worldToMarkerT">Resulting transformation of world coordinates to obtain the marker position</param>
 /// <param name="worldToMarkerR">Resulting transformation of world coordinates to obtain the marker rotation</param>
-void Calibration::Procrustes(MarkerInfo &marker, vector<Point3f> &markerInWorld, vector<float> &worldToMarkerT, vector<vector<float>> &worldToMarkerR)
+void Calibration::Procrustes(MarkerInfo& marker, vector<Point3f>& markerInWorld, vector<float>& worldToMarkerT, vector<vector<float>>& worldToMarkerR)
 {
 	int nVertices = marker.Points.size();
 
@@ -542,6 +531,7 @@ static bool SampleRobustPointFromPatch(
 	int minValidSamples,      // minimum valid points needed
 	Point3f& outPoint)
 {
+	// Nearest pixel center (best-effort assumption)
 	int cx = static_cast<int>(std::lround(x));
 	int cy = static_cast<int>(std::lround(y));
 
@@ -550,8 +540,12 @@ static bool SampleRobustPointFromPatch(
 	int y0 = std::max(0, cy - radius);
 	int y1 = std::min(frameHeight - 1, cy + radius);
 
-	std::vector<Point3f> pts;
-	pts.reserve((2 * radius + 1) * (2 * radius + 1));
+	std::vector<float> xs;
+	std::vector<float> ys;
+	std::vector<float> zs;
+	xs.reserve((2 * radius + 1) * (2 * radius + 1));
+	ys.reserve((2 * radius + 1) * (2 * radius + 1));
+	zs.reserve((2 * radius + 1) * (2 * radius + 1));
 
 	for (int yy = y0; yy <= y1; yy++)
 	{
@@ -560,45 +554,27 @@ static bool SampleRobustPointFromPatch(
 		{
 			const Point3f p = depthFrame[row + xx];
 			if (!IsValidDepthPoint(p)) continue;
-			pts.push_back(p);
+
+			xs.push_back(p.X);
+			ys.push_back(p.Y);
+			zs.push_back(p.Z);
 		}
 	}
 
-	if ((int)pts.size() < minValidSamples)
+	if (static_cast<int>(zs.size()) < minValidSamples)
 		return false;
 
-	// 1) robust Z (median)
-	std::vector<float> zs;
-	zs.reserve(pts.size());
-	for (auto& p : pts) zs.push_back(p.Z);
-	float zMed = MedianOf(zs);
+	// Median independently for X/Y/Z (robust, simple, works well for small patches)
+	float mx = MedianOf(xs);
+	float my = MedianOf(ys);
+	float mz = MedianOf(zs);
 
-	// 2) inlier gate around median Z
-	// Best-effort: allow either a relative band or a small absolute band.
-	// Tune if needed.
-	const float relBand = 0.03f;                // 3% of distance
-	const float absBand = 0.02f;                // 2 cm (if units are meters; if mm, adjust)
-	const float band = std::max(absBand, relBand * zMed);
-
-	float sx = 0, sy = 0, sz = 0;
-	int count = 0;
-
-	for (auto& p : pts)
-	{
-		if (std::fabs(p.Z - zMed) > band) continue;
-		sx += p.X; sy += p.Y; sz += p.Z;
-		count++;
-	}
-
-	if (count < minValidSamples)
-		return false;
-
-	float inv = 1.0f / (float)count;
-	outPoint.X = sx * inv;
-	outPoint.Y = sy * inv;
-	outPoint.Z = sz * inv;
+	outPoint.X = mx;
+	outPoint.Y = my;
+	outPoint.Z = mz;
 	return true;
 }
+
 
 /// <summary>
 /// Uses bilinear interpolation to find marker corner positions in 3D (camera space) from a depth frame.
@@ -616,34 +592,30 @@ bool Calibration::Get3DMarkerCorners(vector<Point3f>& marker3D, MarkerInfo& mark
 	// - invalid depth is Z <= 0 (and/or NaN/Inf)
 	// - robust sampling is better than bilinear at edges/corners
 
+	const int patchRadius = 2;            // 5x5 patch
+	const int minValidSamples = 8;        // require at least 8 valid points in the patch
+
 	for (unsigned int i = 0; i < marker.Corners.size(); i++)
 	{
 		Point3f robustPoint;
-		bool ok = false;
-
-		// Try increasing patch sizes
-		const int minValidSamples = 8;
-
-		for (int radius : { 2, 3, 4 }) // 5x5, 7x7, 9x9
-		{
-			ok = SampleRobustPointFromPatch(
-				depthFrame,
-				frameWidth,
-				frameHeight,
-				marker.Corners[i].X,
-				marker.Corners[i].Y,
-				radius,
-				minValidSamples,
-				robustPoint
-			);
-			if (ok) break;
-		}
+		bool ok = SampleRobustPointFromPatch(
+			depthFrame,
+			frameWidth,
+			frameHeight,
+			marker.Corners[i].X,
+			marker.Corners[i].Y,
+			patchRadius,
+			minValidSamples,
+			robustPoint
+		);
 
 		if (!ok)
 			return false;
 
 		marker3D[i] = robustPoint;
 	}
+
+	return true;
 }
 
 
@@ -655,7 +627,7 @@ bool Calibration::Get3DMarkerCorners(vector<Point3f>& marker3D, MarkerInfo& mark
 /// <param name="point">Input 3D point as vector [x, y, z]</param>
 /// <param name="R">3x3 rotation matrix</param>
 /// <returns>Inverse-rotated 3D point</returns>
-vector<float> InverseRotatePoint(vector<float> &point, std::vector<std::vector<float>> &R)
+vector<float> InverseRotatePoint(vector<float>& point, std::vector<std::vector<float>>& R)
 {
 	vector<float> res(3);
 
@@ -673,7 +645,7 @@ vector<float> InverseRotatePoint(vector<float> &point, std::vector<std::vector<f
 /// <param name="point">Input 3D point as vector [x, y, z]</param>
 /// <param name="R">3x3 rotation matrix</param>
 /// <returns>Rotated 3D point</returns>
-vector<float> RotatePoint(vector<float> &point, std::vector<std::vector<float>> &R)
+vector<float> RotatePoint(vector<float>& point, std::vector<std::vector<float>>& R)
 {
 	vector<float> res(3);
 

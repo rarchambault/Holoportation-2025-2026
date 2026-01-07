@@ -220,16 +220,27 @@ bool Calibration::Calibrate(RGB *colorFrame, Point3f *depthFrame, int frameWidth
 
 	if (!success)
 	{
+		if (logFn) logFn("Calibration: Get3DMarkerCorners failed (insufficient valid depth near marker corners).");
 		return false;
 	}
 
 	if (!PassMarkerSampleGates(marker, marker3D))
+	{
+		if (logFn) logFn("Calibration: marker sample rejected by sanity gates (likely bad depth / skew).");
 		return false;
+	}
 
 
 	// Save the found marker position and wait until enough samples have been saved
 	markerSamplePositions.push_back(marker3D);
 	numSamples++;
+
+	// Safety: cap buffer to NumRequiredSamples (in case logic changes or settings mismatch)
+	if ((int)markerSamplePositions.size() > NumRequiredSamples)
+	{
+		markerSamplePositions.erase(markerSamplePositions.begin());
+		numSamples = (int)markerSamplePositions.size();
+	}
 
 	if (numSamples < NumRequiredSamples) {
 		return false;
@@ -531,7 +542,6 @@ static bool SampleRobustPointFromPatch(
 	int minValidSamples,      // minimum valid points needed
 	Point3f& outPoint)
 {
-	// Nearest pixel center (best-effort assumption)
 	int cx = static_cast<int>(std::lround(x));
 	int cy = static_cast<int>(std::lround(y));
 
@@ -540,12 +550,8 @@ static bool SampleRobustPointFromPatch(
 	int y0 = std::max(0, cy - radius);
 	int y1 = std::min(frameHeight - 1, cy + radius);
 
-	std::vector<float> xs;
-	std::vector<float> ys;
-	std::vector<float> zs;
-	xs.reserve((2 * radius + 1) * (2 * radius + 1));
-	ys.reserve((2 * radius + 1) * (2 * radius + 1));
-	zs.reserve((2 * radius + 1) * (2 * radius + 1));
+	std::vector<Point3f> pts;
+	pts.reserve((2 * radius + 1) * (2 * radius + 1));
 
 	for (int yy = y0; yy <= y1; yy++)
 	{
@@ -554,27 +560,45 @@ static bool SampleRobustPointFromPatch(
 		{
 			const Point3f p = depthFrame[row + xx];
 			if (!IsValidDepthPoint(p)) continue;
-
-			xs.push_back(p.X);
-			ys.push_back(p.Y);
-			zs.push_back(p.Z);
+			pts.push_back(p);
 		}
 	}
 
-	if (static_cast<int>(zs.size()) < minValidSamples)
+	if ((int)pts.size() < minValidSamples)
 		return false;
 
-	// Median independently for X/Y/Z (robust, simple, works well for small patches)
-	float mx = MedianOf(xs);
-	float my = MedianOf(ys);
-	float mz = MedianOf(zs);
+	// 1) robust Z (median)
+	std::vector<float> zs;
+	zs.reserve(pts.size());
+	for (auto& p : pts) zs.push_back(p.Z);
+	float zMed = MedianOf(zs);
 
-	outPoint.X = mx;
-	outPoint.Y = my;
-	outPoint.Z = mz;
+	// 2) inlier gate around median Z
+	// Best-effort: allow either a relative band or a small absolute band.
+	// Tune if needed.
+	const float relBand = 0.03f;                // 3% of distance
+	const float absBand = 0.02f;                // 2 cm (if units are meters; if mm, adjust)
+	const float band = std::max(absBand, relBand * zMed);
+
+	float sx = 0, sy = 0, sz = 0;
+	int count = 0;
+
+	for (auto& p : pts)
+	{
+		if (std::fabs(p.Z - zMed) > band) continue;
+		sx += p.X; sy += p.Y; sz += p.Z;
+		count++;
+	}
+
+	if (count < minValidSamples)
+		return false;
+
+	float inv = 1.0f / (float)count;
+	outPoint.X = sx * inv;
+	outPoint.Y = sy * inv;
+	outPoint.Z = sz * inv;
 	return true;
 }
-
 
 /// <summary>
 /// Uses bilinear interpolation to find marker corner positions in 3D (camera space) from a depth frame.
@@ -592,30 +616,34 @@ bool Calibration::Get3DMarkerCorners(vector<Point3f>& marker3D, MarkerInfo& mark
 	// - invalid depth is Z <= 0 (and/or NaN/Inf)
 	// - robust sampling is better than bilinear at edges/corners
 
-	const int patchRadius = 2;            // 5x5 patch
-	const int minValidSamples = 8;        // require at least 8 valid points in the patch
-
 	for (unsigned int i = 0; i < marker.Corners.size(); i++)
 	{
 		Point3f robustPoint;
-		bool ok = SampleRobustPointFromPatch(
-			depthFrame,
-			frameWidth,
-			frameHeight,
-			marker.Corners[i].X,
-			marker.Corners[i].Y,
-			patchRadius,
-			minValidSamples,
-			robustPoint
-		);
+		bool ok = false;
+
+		// Try increasing patch sizes
+		const int minValidSamples = 8;
+
+		for (int radius : { 2, 3, 4 }) // 5x5, 7x7, 9x9
+		{
+			ok = SampleRobustPointFromPatch(
+				depthFrame,
+				frameWidth,
+				frameHeight,
+				marker.Corners[i].X,
+				marker.Corners[i].Y,
+				radius,
+				minValidSamples,
+				robustPoint
+			);
+			if (ok) break;
+		}
 
 		if (!ok)
 			return false;
 
 		marker3D[i] = robustPoint;
 	}
-
-	return true;
 }
 
 

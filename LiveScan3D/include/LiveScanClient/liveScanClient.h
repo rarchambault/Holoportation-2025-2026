@@ -109,6 +109,7 @@ private:
     std::vector<RGB> lastFrameColors;
     std::vector<float> lastFrameMeshVertices;
     std::vector<int> lastFrameMeshIndices;
+    std::mutex dataMutex;
     int frameCounter = 0;
 
 

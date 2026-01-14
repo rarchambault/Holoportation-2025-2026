@@ -426,18 +426,14 @@ void LiveScanClient::UpdateFrame()
 /// </summary>
 void LiveScanClient::ProcessFrame()
 {
-
 	unsigned int numVertices = captureManager->lastFrameVertices.size();
 
 	// To save some processing cost, we allocate a full frame size (numVertices) of a Point3f Vector beforehand
-	// instead of using push_back for each vertex. Even though we have to copy the vertices into a clean array
-	// later and it uses a little bit more RAM, this gives us a nice speed increase for this function, around 25-50%.
+	vector<Point3f> allVertices(numVertices);
+	int goodVerticesCount = 0;
 
 	// Create a placeholder for a point to remove
 	Point3f invalidPoint = Point3f(0, 0, 0, true);
-
-	vector<Point3f> allVertices(numVertices);
-	int goodVerticesCount = 0;
 
 	voxelGridFilter.Reset();
 
@@ -446,16 +442,22 @@ void LiveScanClient::ProcessFrame()
 	{
 		Point3f temp = captureManager->lastFrameVertices[vertexIndex];
 
+		// [FIX 1] Check if the point is invalid BEFORE doing any math. 
+		// This prevents the rotation from making an invalid (0,0,0) point look "valid".
+		if (temp.Invalid)
+		{
+			allVertices[vertexIndex] = invalidPoint;
+			continue;
+		}
+
 		if (calibration.isCalibrated)
 		{
-			
 			// Rotate the point to match the calibration
 			temp.X += calibration.worldT[0];
 			temp.Y += calibration.worldT[1];
 			temp.Z += calibration.worldT[2];
 			temp = RotatePoint(temp, calibration.worldR);
 
-			
 			// Remove the point if it is outside the bounds specified in the settings
 			if (temp.X < bounds[0] || temp.X > bounds[3]
 				|| temp.Y < bounds[1] || temp.Y > bounds[4]
@@ -464,16 +466,13 @@ void LiveScanClient::ProcessFrame()
 				allVertices[vertexIndex] = invalidPoint;
 				continue;
 			}
-			
-			
-			
 			// Only keep the point if there is not already data for the same reduced point when considering the range
 			else if (!voxelGridFilter.Insert(temp.X, temp.Y, temp.Z))
 			{
 				allVertices[vertexIndex] = invalidPoint;
 				continue;
-			} 
-			
+			}
+
 			voxelGridFilter.Insert(temp.X, temp.Y, temp.Z);
 		}
 
@@ -556,8 +555,11 @@ void LiveScanClient::ProcessFrame()
 		goodVerticesShort[i] = goodVertices[i];
 	}
 
-	lastFrameVertices = goodVerticesShort;
-	lastFrameColors = goodColorPoints;
+	// [FIX 2] DELETED LINES HERE
+	// We do NOT update lastFrameVertices/Colors yet. We wait until the lock at the end.
+	// lastFrameVertices = goodVerticesShort;  <-- DELETED
+	// lastFrameColors = goodColorPoints;      <-- DELETED
+
 
 	using pcl::PointCloud;
 	using pcl::PointXYZ;
@@ -607,22 +609,11 @@ void LiveScanClient::ProcessFrame()
 			pn.normal_z = 0.f;
 		}
 
-		// Only check xyz for finiteness
 		if (pcl::isFinite(cloud->points[i]))
 			cloudWithNormals->points.push_back(pn);
 		else
 			Log("Point " + std::to_string(i) + " has NaN or Inf in coordinates!");
 	}
-
-	/*
-	if (!cloudWithNormals->empty())
-		Log("All points are finite.");
-	else
-	{
-		Log("ERROR: cloudWithNormals is empty after filtering!");
-		return;
-	}
-	*/
 
 	// Create a proper KdTree for PointNormal
 	pcl::search::KdTree<pcl::PointNormal>::Ptr tree(new pcl::search::KdTree<pcl::PointNormal>());
@@ -632,8 +623,7 @@ void LiveScanClient::ProcessFrame()
 	pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
 	pcl::PolygonMesh mesh;
 
-
-	gp3.setSearchRadius(0.1f); 
+	gp3.setSearchRadius(0.1f);
 	gp3.setMu(2.5f);
 	gp3.setMaximumNearestNeighbors(50);
 	gp3.setMaximumSurfaceAngle(M_PI / 4);
@@ -641,9 +631,7 @@ void LiveScanClient::ProcessFrame()
 	gp3.setMaximumAngle(2 * M_PI / 3);
 	gp3.setNormalConsistency(false);
 
-
 	gp3.setInputCloud(cloudWithNormals);
-
 	gp3.setSearchMethod(tree);
 
 	try
@@ -660,12 +648,10 @@ void LiveScanClient::ProcessFrame()
 	}
 
 	// Convert mesh to float arrays for Unity (xyz + triangle indices)
+	// NOTE: lastFrameMeshVertices is technically unused by the sender, but we leave the logic if you use it for debug.
 	lastFrameMeshVertices.clear();
-	lastFrameMeshIndices.clear();
-
 	pcl::PointCloud<pcl::PointXYZ> meshVerts;
 	pcl::fromPCLPointCloud2(mesh.cloud, meshVerts);
-
 	for (auto& v : meshVerts.points)
 	{
 		lastFrameMeshVertices.push_back(v.x);
@@ -673,14 +659,30 @@ void LiveScanClient::ProcessFrame()
 		lastFrameMeshVertices.push_back(v.z);
 	}
 
+	// [FIX 3] Prepare indices locally first, then Lock and Update EVERYTHING together
+	std::vector<int> tempMeshIndices;
+
 	for (const auto& poly : mesh.polygons)
 	{
 		if (poly.vertices.size() == 3)
 		{
-			lastFrameMeshIndices.push_back(poly.vertices[0]);
-			lastFrameMeshIndices.push_back(poly.vertices[1]);
-			lastFrameMeshIndices.push_back(poly.vertices[2]);
+			tempMeshIndices.push_back(poly.vertices[0]);
+			tempMeshIndices.push_back(poly.vertices[1]);
+			tempMeshIndices.push_back(poly.vertices[2]);
 		}
+	}
+
+	// === CRITICAL SECTION ===
+	// We lock here so the network thread cannot read inconsistent data (e.g. vertices from frame 100 but indices from frame 101)
+	{
+		std::lock_guard<std::mutex> lock(dataMutex);
+
+		// Update Vertices
+		lastFrameVertices = goodVerticesShort;
+		// Update Colors
+		lastFrameColors = goodColorPoints;
+		// Update Indices
+		lastFrameMeshIndices = tempMeshIndices;
 	}
 
 	/*Log(
@@ -855,6 +857,8 @@ void LiveScanClient::SendLatestFrame()
 {
 	if (wrapper && wrapper->sendLatestFrameCallback)
 	{
+		std::lock_guard<std::mutex> lock(dataMutex);
+
 		int count = static_cast<int>(lastFrameVertices.size());
 		if (count != lastFrameColors.size())
 		{
@@ -874,6 +878,8 @@ void LiveScanClient::SendLatestMesh()
 {
 	if (wrapper && wrapper->sendLatestMeshCallback)
 	{
+		std::lock_guard<std::mutex> lock(dataMutex);
+
 		wrapper->sendLatestMeshCallback(
 			clientIndex,
 			lastFrameMeshIndices.data(),

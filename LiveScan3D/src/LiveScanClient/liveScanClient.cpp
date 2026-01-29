@@ -437,6 +437,7 @@ void LiveScanClient::ProcessFrame()
 
 	voxelGridFilter.Reset();
 
+	Log("works here");
 	// Apply calibration and remove points outside bounds
 	for (unsigned int vertexIndex = 0; vertexIndex < numVertices; vertexIndex++)
 	{
@@ -444,14 +445,16 @@ void LiveScanClient::ProcessFrame()
 
 		// [FIX 1] Check if the point is invalid BEFORE doing any math. 
 		// This prevents the rotation from making an invalid (0,0,0) point look "valid".
+		/*
 		if (temp.Invalid)
 		{
 			allVertices[vertexIndex] = invalidPoint;
 			continue;
-		}
+		}*/
 
 		if (calibration.isCalibrated)
 		{
+			Log("calibrated");
 			// Rotate the point to match the calibration
 			temp.X += calibration.worldT[0];
 			temp.Y += calibration.worldT[1];
@@ -554,6 +557,8 @@ void LiveScanClient::ProcessFrame()
 	{
 		goodVerticesShort[i] = goodVertices[i];
 	}
+
+	Log("preprocessing applied");
 
 	// [FIX 2] DELETED LINES HERE
 	// We do NOT update lastFrameVertices/Colors yet. We wait until the lock at the end.

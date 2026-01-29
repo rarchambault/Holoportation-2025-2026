@@ -369,7 +369,11 @@ void LiveScanClient::UpdateFrame()
 	}
 
 	// Apply some processing to the data that was just retrieved and store it in local variables
-	ProcessFrame();
+
+	if (!isCalibrateRequested)
+	{
+		ProcessFrame();
+	}
 
 	// Process the document data from the frame
 	if (captureManager->hasNewDocument) 

@@ -425,7 +425,6 @@ void LiveScanClient::UpdateFrame()
 		}
 	}
 }
-
 /// <summary>
 /// Applies some processing steps to the last retrieved point cloud such as filtering and removing points outside the bounds
 /// </summary>
@@ -442,20 +441,10 @@ void LiveScanClient::ProcessFrame()
 
 	voxelGridFilter.Reset();
 
-	Log("works here");
 	// Apply calibration and remove points outside bounds
 	for (unsigned int vertexIndex = 0; vertexIndex < numVertices; vertexIndex++)
 	{
 		Point3f temp = captureManager->lastFrameVertices[vertexIndex];
-
-		// [FIX 1] Check if the point is invalid BEFORE doing any math. 
-		// This prevents the rotation from making an invalid (0,0,0) point look "valid".
-		/*
-		if (temp.Invalid)
-		{
-			allVertices[vertexIndex] = invalidPoint;
-			continue;
-		}*/
 
 		if (calibration.isCalibrated)
 		{
@@ -487,19 +476,21 @@ void LiveScanClient::ProcessFrame()
 		goodVerticesCount++;
 	}
 
-	// Apply simple voxel density-based filter
-	const float voxelSize = 0.006f;
-	const int minPointsPerVoxel = 0;
+	// =========================================================
+	// TRUE VOXEL DOWNSAMPLING (Preserves Colors)
+	// =========================================================
+	// 8mm voxel size - The "Sweet Spot" for quality vs speed
+	const float voxelSize = 0.002f;
+	std::map<uint64_t, bool> voxelOccupied;
 
-	// Count points per voxel
-	std::map<uint64_t, int> voxelCounts;
 	auto HashVoxel = [](int x, int y, int z) -> uint64_t {
 		return (static_cast<uint64_t>(x) & 0x1FFFFF) << 42 |
 			(static_cast<uint64_t>(y) & 0x1FFFFF) << 21 |
 			(static_cast<uint64_t>(z) & 0x1FFFFF);
 		};
 
-	vector<uint64_t> vertexVoxelKeys(numVertices);
+	int filteredCount = 0;
+
 	for (unsigned int i = 0; i < allVertices.size(); ++i)
 	{
 		Point3f& pt = allVertices[i];
@@ -509,42 +500,33 @@ void LiveScanClient::ProcessFrame()
 			int vy = static_cast<int>(floor(pt.Y / voxelSize));
 			int vz = static_cast<int>(floor(pt.Z / voxelSize));
 			uint64_t key = HashVoxel(vx, vy, vz);
-			vertexVoxelKeys[i] = key;
-			voxelCounts[key]++;
-		}
-		else
-		{
-			vertexVoxelKeys[i] = 0; // placeholder
-		}
-	}
 
-	int filteredCount = 0;
-
-	// Mark isolated points as invalid
-	for (unsigned int i = 0; i < allVertices.size(); ++i)
-	{
-		if (!allVertices[i].Invalid)
-		{
-			if (voxelCounts[vertexVoxelKeys[i]] < minPointsPerVoxel)
+			// If we already have a point in this voxel, throw this one away
+			if (voxelOccupied.find(key) != voxelOccupied.end())
 			{
 				allVertices[i] = invalidPoint;
 				filteredCount++;
 			}
+			else
+			{
+				voxelOccupied[key] = true; // Mark voxel as occupied
+			}
 		}
 	}
+	// =========================================================
 
 	// Copy all valid vertices into a clean vector 
-	vector<Point3f> goodVertices(goodVerticesCount);
-	vector<RGB> goodColorPoints(goodVerticesCount);
-	int goodVerticesShortCounter = 0;
+	vector<Point3f> goodVertices;
+	vector<RGB> goodColorPoints;
+	goodVertices.reserve(goodVerticesCount);
+	goodColorPoints.reserve(goodVerticesCount);
 
 	for (unsigned int i = 0; i < allVertices.size(); i++)
 	{
 		if (!allVertices[i].Invalid)
 		{
-			goodVertices[goodVerticesShortCounter] = allVertices[i];
-			goodColorPoints[goodVerticesShortCounter] = captureManager->lastFrameColors[i];
-			goodVerticesShortCounter++;
+			goodVertices.push_back(allVertices[i]);
+			goodColorPoints.push_back(captureManager->lastFrameColors[i]);
 		}
 	}
 
@@ -556,7 +538,6 @@ void LiveScanClient::ProcessFrame()
 
 	// Convert the remaining vertices to shorts to save memory
 	vector<Point3s> goodVerticesShort(goodVertices.size());
-
 	for (size_t i = 0; i < goodVertices.size(); i++)
 	{
 		goodVerticesShort[i] = goodVertices[i];
@@ -564,12 +545,9 @@ void LiveScanClient::ProcessFrame()
 
 	Log("preprocessing applied");
 
-	// [FIX 2] DELETED LINES HERE
-	// We do NOT update lastFrameVertices/Colors yet. We wait until the lock at the end.
-	// lastFrameVertices = goodVerticesShort;  <-- DELETED
-	// lastFrameColors = goodColorPoints;      <-- DELETED
-
-
+	// =========================================================
+	// PCL MESHING BLOCK
+	// =========================================================
 	using pcl::PointCloud;
 	using pcl::PointXYZ;
 	using pcl::GreedyProjectionTriangulation;
@@ -584,7 +562,7 @@ void LiveScanClient::ProcessFrame()
 	// 2. OPTIMIZED Normal Estimation (Multi-Core)
 	pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>());
 
-	// *** FIX 1: Use OpenMP (OMP) for multi-threading ***
+	// OpenMP Multi-threading
 	pcl::NormalEstimationOMP<PointXYZ, pcl::Normal> ne;
 	ne.setNumberOfThreads(0); // 0 = Use all CPU cores
 	ne.setInputCloud(cloud);
@@ -592,7 +570,7 @@ void LiveScanClient::ProcessFrame()
 	pcl::search::KdTree<PointXYZ>::Ptr normalTree(new pcl::search::KdTree<PointXYZ>());
 	ne.setSearchMethod(normalTree);
 
-	// Speed Tip: 15-20 neighbors is enough for smooth normals
+	// Speed Tip: 20 neighbors is enough for smooth normals
 	ne.setKSearch(20);
 	ne.compute(*normals);
 
@@ -608,12 +586,8 @@ void LiveScanClient::ProcessFrame()
 	pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
 	pcl::PolygonMesh mesh;
 
-	// *** FIX 2: Reduce Search Radius ***
-	// 0.1f (10cm) -> 0.025f (2.5cm). Huge speedup.
-	gp3.setSearchRadius(0.025f);
-
-	// *** FIX 3: Cap Neighbors ***
-	// 50 -> 30.
+	// Fast search parameters (Radius matched to the 8mm voxel size)
+	gp3.setSearchRadius(0.05f);
 	gp3.setMaximumNearestNeighbors(30);
 
 	gp3.setMu(2.5f);
@@ -635,7 +609,6 @@ void LiveScanClient::ProcessFrame()
 	}
 
 	// Convert mesh to float arrays for Unity (xyz + triangle indices)
-	// NOTE: lastFrameMeshVertices is technically unused by the sender, but we leave the logic if you use it for debug.
 	lastFrameMeshVertices.clear();
 	pcl::PointCloud<pcl::PointXYZ> meshVerts;
 	pcl::fromPCLPointCloud2(mesh.cloud, meshVerts);
@@ -646,9 +619,8 @@ void LiveScanClient::ProcessFrame()
 		lastFrameMeshVertices.push_back(v.z);
 	}
 
-	// [FIX 3] Prepare indices locally first, then Lock and Update EVERYTHING together
+	// Prepare indices locally first, then Lock and Update EVERYTHING together
 	std::vector<int> tempMeshIndices;
-
 	for (const auto& poly : mesh.polygons)
 	{
 		if (poly.vertices.size() == 3)
@@ -660,7 +632,7 @@ void LiveScanClient::ProcessFrame()
 	}
 
 	// === CRITICAL SECTION ===
-	// We lock here so the network thread cannot read inconsistent data (e.g. vertices from frame 100 but indices from frame 101)
+	// We lock here so the network thread cannot read inconsistent data
 	{
 		std::lock_guard<std::mutex> lock(dataMutex);
 
@@ -674,65 +646,9 @@ void LiveScanClient::ProcessFrame()
 
 	Log(
 		"[LiveScanClient] Mesh: " +
-		std::to_string(lastFrameMeshVertices.size() / 3) + " vertices, " +
+		std::to_string(lastFrameVertices.size()) + " vertices, " +
 		std::to_string(lastFrameMeshIndices.size() / 3) + " triangles"
 	);
-
-	using json = nlohmann::json;
-
-	if (frameCounter % 100 == 0)
-	{
-		json j;
-
-		// Save point cloud vertices
-		{
-			json verts = json::array();
-			for (const auto& v : lastFrameVertices)
-			{
-				verts.push_back({
-					{"x", v.X},
-					{"y", v.Y},
-					{"z", v.Z}
-					});
-			}
-			j["vertices"] = verts;
-		}
-
-		// Save point cloud colors
-		{
-			json cols = json::array();
-			for (const auto& c : lastFrameColors)
-			{
-				cols.push_back({
-					{"r", c.Red},
-					{"g", c.Green},
-					{"b", c.Blue}
-					});
-			}
-			j["colors"] = cols;
-		}
-
-		// Save triangle mesh indices (flattened)
-		{
-			json tris = json::array();
-			for (size_t i = 0; i < lastFrameMeshIndices.size(); ++i)
-			{
-				tris.push_back(lastFrameMeshIndices[i]);
-			}
-			j["triangles"] = tris;
-		}
-
-		// Write JSON to file
-		std::ofstream out("frame_cam" + std::to_string(clientIndex) + ".json");
-		out << j.dump(4);        // pretty-print with 4 spaces
-		out.close();
-
-		//Log("Saved frame to frame.json");
-	}
-
-	frameCounter++;
-
-	//Log(std::to_string(frameCounter));
 }
 
 void LiveScanClient::ProcessDocument()

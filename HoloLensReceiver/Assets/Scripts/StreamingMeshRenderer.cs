@@ -8,21 +8,22 @@ public class StreamingMeshRenderer : MonoBehaviour
     public Vector3 positionOffset = new Vector3(0, 0, 2f);
     public bool flipX = true;
 
-    [Header("Performance")]
-    public bool calculateNormals = false;
+    [Header("Performance & Looks")]
+    [Tooltip("Required if using the Surface shader to calculate lighting and shadows.")]
+    public bool calculateNormals = true;
 
     private Mesh mesh;
     private MeshFilter meshFilter;
     private MeshRenderer meshRenderer;
 
-    // --- FPS & FILTER VARIABLES ---
-    private int framesReceived = 0;
-    private float fpsTimer = 0f;
+    // --- TRUE FPS TRACKING ---
+    private int networkPackets = 0;
+    private int uniqueFrames = 0;
+    private float lastLogTime = 0f;
 
-    // We use these to detect if the frame is identical to the last one
+    // --- FILTER MEMORY ---
     private int lastVertexCount = -1;
     private Vector3 lastFirstVertex = Vector3.zero;
-    // ------------------------------
 
     private void Awake()
     {
@@ -30,65 +31,84 @@ public class StreamingMeshRenderer : MonoBehaviour
         meshRenderer = GetComponent<MeshRenderer>();
 
         mesh = new Mesh();
-        // Allow large meshes (essential for point clouds)
+        // Allow meshes larger than 65k vertices
         mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-        mesh.MarkDynamic(); // Optimize for frequent updates
-
+        // Optimize the mesh for frequent frame-by-frame updates
+        mesh.MarkDynamic();
         meshFilter.mesh = mesh;
 
-        // Apply Shader (Unlit is faster)
-        var shader = Shader.Find("Particles/Standard Unlit");
+        // Apply the upgraded Surface shader for better 3D depth and lighting
+        var shader = Shader.Find("Particles/Standard Surface");
         if (meshRenderer.sharedMaterial == null)
         {
             if (shader != null) meshRenderer.material = new Material(shader);
             else meshRenderer.material = new Material(Shader.Find("Standard"));
         }
 
-        // Apply Transform once (Hardware acceleration)
+        // Apply Transforms (Hardware acceleration instead of C# loops)
         transform.localPosition = positionOffset;
         transform.localScale = new Vector3(flipX ? -scale : scale, scale, scale);
+
+        // Initialize the timer
+        lastLogTime = Time.realtimeSinceStartup;
     }
 
     public void EnqueueMesh(Vector3[] vertices, Color32[] colors, int[] triangles)
     {
-        // 1. SAFETY CHECKS
-        if (vertices == null || vertices.Length == 0) return;
+        // 1. ALWAYS Count the network packet
+        networkPackets++;
 
-        // 2. DUPLICATE FRAME FILTER
-        // If the vertex count AND the first vertex are exactly the same, 
-        // it's a duplicate frame. We ignore it.
-        if (vertices.Length == lastVertexCount && vertices[0] == lastFirstVertex)
+        // 2. CHECK FOR DUPLICATES
+        // If the vertex count AND the exact position of the first vertex match the last frame,
+        // it is a ghost frame sent by the server. 
+        bool isDuplicate = false;
+        if (vertices != null && vertices.Length == lastVertexCount && vertices.Length > 0)
         {
-            // Do NOT update mesh. Do NOT increment FPS. Just exit.
-            return;
+            if (vertices[0] == lastFirstVertex)
+            {
+                isDuplicate = true;
+            }
         }
 
-        // Update our "Last Frame" memory
-        lastVertexCount = vertices.Length;
-        lastFirstVertex = vertices[0];
+        // 3. TRUE LOGGING (Based on real-world time)
+        float currentTime = Time.realtimeSinceStartup;
+        float timeElapsed = currentTime - lastLogTime;
 
-        // 3. UPDATE MESH (Only runs if data is NEW)
+        if (timeElapsed >= 1.0f)
+        {
+            // Calculate FPS based on exactly how much real time passed
+            float netFPS = networkPackets / timeElapsed;
+            float realFPS = uniqueFrames / timeElapsed;
+
+            Debug.Log($"[True System FPS] Network Receives: {netFPS:F1}/sec | New Meshes Rendered: {realFPS:F1}/sec");
+
+            // Reset counters
+            networkPackets = 0;
+            uniqueFrames = 0;
+            lastLogTime = currentTime;
+        }
+
+        // 4. IF DUPLICATE, STOP HERE
+        if (isDuplicate) return;
+
+        // 5. UPDATE MESH (Only for brand new data)
+        lastVertexCount = vertices.Length;
+        if (vertices.Length > 0) lastFirstVertex = vertices[0];
+        uniqueFrames++;
+
+        // False keeps the memory layout, which is slightly faster for dynamic meshes
         mesh.Clear(false);
+
         mesh.SetVertices(vertices);
         mesh.SetColors(colors);
         mesh.SetTriangles(triangles, 0);
 
         mesh.RecalculateBounds();
 
+        // Calculate normals so the "Standard Surface" shader can draw shadows
         if (calculateNormals)
-            mesh.RecalculateNormals();
-
-        // 4. TRUE FPS CALCULATION
-        // This will now only count FRAMES THAT ACTUALLY CHANGED.
-        fpsTimer += Time.deltaTime;
-        framesReceived++;
-
-        if (fpsTimer >= 1.0f)
         {
-            Debug.Log($"[TRUE FPS] {framesReceived} fps | Verts: {mesh.vertexCount}");
-
-            framesReceived = 0;
-            fpsTimer = 0f;
+            mesh.RecalculateNormals();
         }
     }
 }

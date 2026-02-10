@@ -36,6 +36,7 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 #include <pcl/search/kdtree.h>
 #include <json.hpp>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/features/normal_3d_omp.h>
 
 
 LiveScanClient::LiveScanClient(int index) :
@@ -458,7 +459,6 @@ void LiveScanClient::ProcessFrame()
 
 		if (calibration.isCalibrated)
 		{
-			Log("calibrated");
 			// Rotate the point to match the calibration
 			temp.X += calibration.worldT[0];
 			temp.Y += calibration.worldT[1];
@@ -488,8 +488,8 @@ void LiveScanClient::ProcessFrame()
 	}
 
 	// Apply simple voxel density-based filter
-	const float voxelSize = 0.02f;
-	const int minPointsPerVoxel = 1;
+	const float voxelSize = 0.006f;
+	const int minPointsPerVoxel = 0;
 
 	// Count points per voxel
 	std::map<uint64_t, int> voxelCounts;
@@ -575,66 +575,48 @@ void LiveScanClient::ProcessFrame()
 	using pcl::GreedyProjectionTriangulation;
 	using pcl::search::KdTree;
 
-
-	// Convert into PCL point cloud
+	// 1. Convert to PCL point cloud
 	pcl::PointCloud<PointXYZ>::Ptr cloud(new pcl::PointCloud<PointXYZ>());
 	cloud->reserve(goodVertices.size());
-
 	for (auto& p : goodVertices)
 		cloud->push_back(PointXYZ(p.X, p.Y, p.Z));
 
-
-	// Normal estimation
+	// 2. OPTIMIZED Normal Estimation (Multi-Core)
 	pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>());
-	pcl::NormalEstimation<PointXYZ, pcl::Normal> ne;
+
+	// *** FIX 1: Use OpenMP (OMP) for multi-threading ***
+	pcl::NormalEstimationOMP<PointXYZ, pcl::Normal> ne;
+	ne.setNumberOfThreads(0); // 0 = Use all CPU cores
 	ne.setInputCloud(cloud);
+
 	pcl::search::KdTree<PointXYZ>::Ptr normalTree(new pcl::search::KdTree<PointXYZ>());
 	ne.setSearchMethod(normalTree);
 
-	// Automatically choose KSearch <= cloud size
-	size_t kSearch = std::min<size_t>(20, cloud->size());
-	ne.setKSearch(kSearch);
+	// Speed Tip: 15-20 neighbors is enough for smooth normals
+	ne.setKSearch(20);
 	ne.compute(*normals);
 
+	// 3. Combine Points and Normals
 	pcl::PointCloud<pcl::PointNormal>::Ptr cloudWithNormals(new pcl::PointCloud<pcl::PointNormal>());
+	pcl::concatenateFields(*cloud, *normals, *cloudWithNormals);
 
-	for (size_t i = 0; i < cloud->size(); i++)
-	{
-		pcl::PointNormal pn;
-		pn.x = cloud->points[i].x;
-		pn.y = cloud->points[i].y;
-		pn.z = cloud->points[i].z;
-
-		if (i < normals->size())
-		{
-			pn.normal_x = normals->points[i].normal_x;
-			pn.normal_y = normals->points[i].normal_y;
-			pn.normal_z = normals->points[i].normal_z;
-		}
-		else
-		{
-			pn.normal_x = 0.f;
-			pn.normal_y = 0.f;
-			pn.normal_z = 0.f;
-		}
-
-		if (pcl::isFinite(cloud->points[i]))
-			cloudWithNormals->points.push_back(pn);
-		else
-			Log("Point " + std::to_string(i) + " has NaN or Inf in coordinates!");
-	}
-
-	// Create a proper KdTree for PointNormal
+	// 4. Create Search Tree for GPT
 	pcl::search::KdTree<pcl::PointNormal>::Ptr tree(new pcl::search::KdTree<pcl::PointNormal>());
 	tree->setInputCloud(cloudWithNormals);
 
-	// Triangulation
+	// 5. OPTIMIZED Greedy Projection Triangulation
 	pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
 	pcl::PolygonMesh mesh;
 
-	gp3.setSearchRadius(0.1f);
+	// *** FIX 2: Reduce Search Radius ***
+	// 0.1f (10cm) -> 0.025f (2.5cm). Huge speedup.
+	gp3.setSearchRadius(0.025f);
+
+	// *** FIX 3: Cap Neighbors ***
+	// 50 -> 30.
+	gp3.setMaximumNearestNeighbors(30);
+
 	gp3.setMu(2.5f);
-	gp3.setMaximumNearestNeighbors(50);
 	gp3.setMaximumSurfaceAngle(M_PI / 4);
 	gp3.setMinimumAngle(M_PI / 18);
 	gp3.setMaximumAngle(2 * M_PI / 3);
@@ -647,13 +629,9 @@ void LiveScanClient::ProcessFrame()
 	{
 		gp3.reconstruct(mesh);
 	}
-	catch (const std::exception& e)
-	{
-		Log(std::string("Mesh reconstruction failed: ") + e.what());
-	}
 	catch (...)
 	{
-		Log("Mesh reconstruction failed: unknown error");
+		Log("Mesh reconstruction failed.");
 	}
 
 	// Convert mesh to float arrays for Unity (xyz + triangle indices)
@@ -694,11 +672,11 @@ void LiveScanClient::ProcessFrame()
 		lastFrameMeshIndices = tempMeshIndices;
 	}
 
-	/*Log(
+	Log(
 		"[LiveScanClient] Mesh: " +
 		std::to_string(lastFrameMeshVertices.size() / 3) + " vertices, " +
 		std::to_string(lastFrameMeshIndices.size() / 3) + " triangles"
-	);*/
+	);
 
 	using json = nlohmann::json;
 
@@ -895,7 +873,7 @@ void LiveScanClient::SendLatestMesh()
 			(int)lastFrameMeshIndices.size()
 		);
 	}
-	Log(">>> [C++] SendLatestMesh() CALLED with " + std::to_string(lastFrameMeshIndices.size() / 3) + " triangles");
+	//Log(">>> [C++] SendLatestMesh() CALLED with " + std::to_string(lastFrameMeshIndices.size() / 3) + " triangles");
 }
 
 void LiveScanClient::SendRecordedFrame(std::vector<Point3s>& vertices, std::vector<RGB>& RGB, bool noMoreFrames)

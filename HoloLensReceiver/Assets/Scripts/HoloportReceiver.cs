@@ -227,7 +227,7 @@ public class HoloportReceiver : MonoBehaviour
                     );
                 }
 
-                Debug.Log($"Received mesh: {vertexCount} verts, {triangleCount} triangles.");
+                //Debug.Log($"Received mesh: {vertexCount} verts, {triangleCount} triangles.");
 
                 if (meshRenderer != null)
                 {

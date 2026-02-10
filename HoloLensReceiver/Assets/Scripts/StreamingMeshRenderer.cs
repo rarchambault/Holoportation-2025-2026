@@ -3,107 +3,92 @@ using UnityEngine;
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class StreamingMeshRenderer : MonoBehaviour
 {
-    [Tooltip("Scale applied to incoming vertices (optional).")]
+    [Header("Settings")]
     public float scale = 1f;
-
-    [Tooltip("If true, disable back-face culling so mesh is double-sided.")]
-    public bool doubleSided = true;
-
-    [Tooltip("Optional offset to move the whole mesh in front of the camera.")]
     public Vector3 positionOffset = new Vector3(0, 0, 2f);
-
-    [Tooltip("Flip X coordinate (PCL -> Unity mirroring).")]
     public bool flipX = true;
+
+    [Header("Performance")]
+    public bool calculateNormals = false;
 
     private Mesh mesh;
     private MeshFilter meshFilter;
     private MeshRenderer meshRenderer;
+
+    // --- FPS & FILTER VARIABLES ---
+    private int framesReceived = 0;
+    private float fpsTimer = 0f;
+
+    // We use these to detect if the frame is identical to the last one
+    private int lastVertexCount = -1;
+    private Vector3 lastFirstVertex = Vector3.zero;
+    // ------------------------------
 
     private void Awake()
     {
         meshFilter = GetComponent<MeshFilter>();
         meshRenderer = GetComponent<MeshRenderer>();
 
-        // Create the mesh once, reuse it for streaming updates
         mesh = new Mesh();
-        // *** CRITICAL FIX FOR MARCHING CUBES ***
-        // Allows meshes larger than 65k vertices
+        // Allow large meshes (essential for point clouds)
         mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        mesh.MarkDynamic(); // Optimize for frequent updates
 
         meshFilter.mesh = mesh;
 
-        // Ensure the shader handles vertex colors
+        // Apply Shader (Unlit is faster)
         var shader = Shader.Find("Particles/Standard Unlit");
         if (meshRenderer.sharedMaterial == null)
         {
-            if (shader != null)
-            {
-                meshRenderer.material = new Material(shader);
-            }
-            else
-            {
-                // Fallback so we at least see *something* even if shader name is wrong
-                Debug.LogWarning("StreamingMeshRenderer: Shader 'Particles/Standard Unlit' not found. Using default material.");
-                meshRenderer.material = new Material(Shader.Find("Standard"));
-            }
+            if (shader != null) meshRenderer.material = new Material(shader);
+            else meshRenderer.material = new Material(Shader.Find("Standard"));
         }
 
-        if (doubleSided && meshRenderer.material != null)
-        {
-            meshRenderer.material.SetFloat("_Cull", (float)UnityEngine.Rendering.CullMode.Off);
-        }
-
-        Debug.Log("StreamingMeshRenderer Awake: mesh + material initialized.");
+        // Apply Transform once (Hardware acceleration)
+        transform.localPosition = positionOffset;
+        transform.localScale = new Vector3(flipX ? -scale : scale, scale, scale);
     }
 
-    /// <summary>
-    /// Called by HoloportReceiver each time a new mesh frame arrives.
-    /// </summary>
-    public void EnqueueMesh(Vector3[] vertices, Color32[] colors32, int[] triangles)
+    public void EnqueueMesh(Vector3[] vertices, Color32[] colors, int[] triangles)
     {
-        if (vertices == null || colors32 == null || triangles == null ||
-            vertices.Length == 0 || triangles.Length == 0)
+        // 1. SAFETY CHECKS
+        if (vertices == null || vertices.Length == 0) return;
+
+        // 2. DUPLICATE FRAME FILTER
+        // If the vertex count AND the first vertex are exactly the same, 
+        // it's a duplicate frame. We ignore it.
+        if (vertices.Length == lastVertexCount && vertices[0] == lastFirstVertex)
         {
-            Debug.LogWarning("StreamingMeshRenderer: empty mesh data, skipping.");
+            // Do NOT update mesh. Do NOT increment FPS. Just exit.
             return;
         }
 
-        // Optional scale & coordinate tweaks, mirroring your old MeshRender logic
-        for (int i = 0; i < vertices.Length; i++)
-        {
-            Vector3 v = vertices[i];
+        // Update our "Last Frame" memory
+        lastVertexCount = vertices.Length;
+        lastFirstVertex = vertices[0];
 
-            if (flipX)
-                v.x = -v.x;              // PCL -> Unity mirror like your old script
+        // 3. UPDATE MESH (Only runs if data is NEW)
+        mesh.Clear(false);
+        mesh.SetVertices(vertices);
+        mesh.SetColors(colors);
+        mesh.SetTriangles(triangles, 0);
 
-            if (!Mathf.Approximately(scale, 1f))
-                v *= scale;
-
-            v += positionOffset;          // Move mesh in front of camera
-
-            vertices[i] = v;
-        }
-
-        // Convert Color32[] to Color[] because your old script used mesh.colors
-        Color[] colors = new Color[colors32.Length];
-        for (int i = 0; i < colors.Length; i++)
-        {
-            colors[i] = colors32[i];
-        }
-
-        // *** This block mirrors your old MeshRender logic as closely as possible ***
-        mesh.Clear();
-
-        mesh.vertices = vertices;
-        mesh.triangles = triangles;
-        mesh.colors = colors;
-
-        mesh.RecalculateNormals();
         mesh.RecalculateBounds();
 
-        Debug.Log($"StreamingMeshRenderer: updated mesh " +
-                  $"(verts={mesh.vertexCount}, tris={mesh.triangles.Length / 3}, " +
-                  $"bounds center={mesh.bounds.center}, size={mesh.bounds.size})");
+        if (calculateNormals)
+            mesh.RecalculateNormals();
 
+        // 4. TRUE FPS CALCULATION
+        // This will now only count FRAMES THAT ACTUALLY CHANGED.
+        fpsTimer += Time.deltaTime;
+        framesReceived++;
+
+        if (fpsTimer >= 1.0f)
+        {
+            Debug.Log($"[TRUE FPS] {framesReceived} fps | Verts: {mesh.vertexCount}");
+
+            framesReceived = 0;
+            fpsTimer = 0f;
+        }
     }
 }

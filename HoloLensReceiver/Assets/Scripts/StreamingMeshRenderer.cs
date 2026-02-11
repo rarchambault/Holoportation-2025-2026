@@ -8,9 +8,12 @@ public class StreamingMeshRenderer : MonoBehaviour
     public Vector3 positionOffset = new Vector3(0, 0, 2f);
     public bool flipX = true;
 
+    [Tooltip("If true, turns off backface culling to prevent holes in the mesh.")]
+    public bool doubleSided = true;
+
     [Header("Performance & Looks")]
-    [Tooltip("Required if using the Surface shader to calculate lighting and shadows.")]
-    public bool calculateNormals = true;
+    [Tooltip("Uncheck this for a massive FPS boost when using the Unlit shader.")]
+    public bool calculateNormals = false;
 
     private Mesh mesh;
     private MeshFilter meshFilter;
@@ -37,12 +40,21 @@ public class StreamingMeshRenderer : MonoBehaviour
         mesh.MarkDynamic();
         meshFilter.mesh = mesh;
 
-        // Apply the upgraded Surface shader for better 3D depth and lighting
-        var shader = Shader.Find("Particles/Standard Surface");
+        // Use the Unlit shader so shadows don't create fake "holes"
+        var shader = Shader.Find("Particles/Standard Unlit");
         if (meshRenderer.sharedMaterial == null)
         {
             if (shader != null) meshRenderer.material = new Material(shader);
             else meshRenderer.material = new Material(Shader.Find("Standard"));
+        }
+
+        // ==========================================
+        // THE FIX: TURN OFF BACKFACE CULLING
+        // Forces Unity to draw the "inside" of the triangles
+        // ==========================================
+        if (doubleSided && meshRenderer.material.HasProperty("_Cull"))
+        {
+            meshRenderer.material.SetFloat("_Cull", (float)UnityEngine.Rendering.CullMode.Off);
         }
 
         // Apply Transforms (Hardware acceleration instead of C# loops)
@@ -80,7 +92,7 @@ public class StreamingMeshRenderer : MonoBehaviour
             float netFPS = networkPackets / timeElapsed;
             float realFPS = uniqueFrames / timeElapsed;
 
-            Debug.Log($"[True System FPS] Network Receives: {netFPS:F1}/sec | New Meshes Rendered: {realFPS:F1}/sec");
+            Debug.Log($"[FPS] Network Receives: {netFPS:F1} fps");
 
             // Reset counters
             networkPackets = 0;
@@ -105,7 +117,7 @@ public class StreamingMeshRenderer : MonoBehaviour
 
         mesh.RecalculateBounds();
 
-        // Calculate normals so the "Standard Surface" shader can draw shadows
+        // Only calculate normals if strictly necessary (Unlit doesn't need them!)
         if (calculateNormals)
         {
             mesh.RecalculateNormals();

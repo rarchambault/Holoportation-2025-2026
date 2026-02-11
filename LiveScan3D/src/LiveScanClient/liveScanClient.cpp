@@ -480,7 +480,7 @@ void LiveScanClient::ProcessFrame()
 	// TRUE VOXEL DOWNSAMPLING (Preserves Colors)
 	// =========================================================
 	// 8mm voxel size - The "Sweet Spot" for quality vs speed
-	const float voxelSize = 0.002f;
+	const float voxelSize = 0.008f;
 	std::map<uint64_t, bool> voxelOccupied;
 
 	auto HashVoxel = [](int x, int y, int z) -> uint64_t {

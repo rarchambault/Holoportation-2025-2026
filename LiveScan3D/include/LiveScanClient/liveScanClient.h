@@ -34,6 +34,7 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 #include "transferObjectUtils.h"
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <functional>
 #include <voxelGridFilter.h>
 
@@ -119,12 +120,20 @@ private:
     short lastDocumentHeight;
     std::chrono::milliseconds lastDocumentSendTime;
 
+    std::thread processingThread;
+    std::mutex frameMutex;
+    std::condition_variable frameCV;
+    bool hasNewFrameToProcess = false;
+
+    std::vector<Point3f> rawBufferVertices;
+    std::vector<RGB> rawBufferColors;
+
     Point3f* cameraSpaceCoordinates;
 
     std::ofstream logFile;
 
     void UpdateFrame();
-    void ProcessFrame();
+    //void ProcessFrame();
     void ProcessDocument();
     float ComputeImageDifference(cv::Mat& newDocumentData);
     void SendSerialNumber();
@@ -138,5 +147,6 @@ private:
     void SendDocument();
     void SendClientConfirmations();
     void SetupLogging(int clientIndex);
+    void ProcessingLoop();
     void Log(const std::string& message);
 };

@@ -34,7 +34,6 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 #include "transferObjectUtils.h"
 #include <thread>
 #include <mutex>
-#include <condition_variable>
 #include <functional>
 #include <voxelGridFilter.h>
 
@@ -52,7 +51,6 @@ public:
     void SetSettings(const CameraSettings& settings);
     void RequestRecordedFrame();
     void RequestLatestFrame();
-    void RequestLatestMesh();
     void ReceiveCalibration(const AffineTransform& transform);
     void ClearRecordedFrames();
     void EnableSync(int syncState, int syncOffset);
@@ -63,7 +61,7 @@ public:
     std::function<void(const std::string&)> GetLogger();
 
 private:
-    const float Range = 0.3f;
+    const float Range = 1.0f;
     const float HalfRange = Range / 2.0f;
     const float MinPrecision = Range / 255; // Min precision (max resolution) with the set range and the number of values in a byte (255)
     const int GridResolution = Range / MinPrecision;
@@ -110,7 +108,6 @@ private:
     std::vector<RGB> lastFrameColors;
     std::vector<float> lastFrameMeshVertices;
     std::vector<int> lastFrameMeshIndices;
-    std::mutex dataMutex;
     int frameCounter = 0;
 
 
@@ -120,20 +117,12 @@ private:
     short lastDocumentHeight;
     std::chrono::milliseconds lastDocumentSendTime;
 
-    std::thread processingThread;
-    std::mutex frameMutex;
-    std::condition_variable frameCV;
-    bool hasNewFrameToProcess = false;
-
-    std::vector<Point3f> rawBufferVertices;
-    std::vector<RGB> rawBufferColors;
-
     Point3f* cameraSpaceCoordinates;
 
     std::ofstream logFile;
 
     void UpdateFrame();
-    //void ProcessFrame();
+    void ProcessFrame();
     void ProcessDocument();
     float ComputeImageDifference(cv::Mat& newDocumentData);
     void SendSerialNumber();
@@ -147,6 +136,5 @@ private:
     void SendDocument();
     void SendClientConfirmations();
     void SetupLogging(int clientIndex);
-    void ProcessingLoop();
     void Log(const std::string& message);
 };

@@ -38,7 +38,6 @@ extern "C" {
     LIVESCAN_API void SetSettings(LiveScanClientHandle handle, const CameraSettings* settings);
 	LIVESCAN_API void RequestRecordedFrame(LiveScanClientHandle handle);
 	LIVESCAN_API void RequestLatestFrame(LiveScanClientHandle handle);
-	LIVESCAN_API void RequestLatestMesh(LiveScanClientHandle handle);
 	LIVESCAN_API void ReceiveCalibration(LiveScanClientHandle handle, const AffineTransform* transform);
 	LIVESCAN_API void ClearRecordedFrames(LiveScanClientHandle handle);
 	LIVESCAN_API void EnableSync(LiveScanClientHandle handle, int syncState, int syncOffset);
@@ -50,7 +49,6 @@ extern "C" {
 	LIVESCAN_API void SetConfirmRecordedCallback(LiveScanClientHandle handle, ConfirmRecordedCallback cb);
 	LIVESCAN_API void SetConfirmCalibratedCallback(LiveScanClientHandle handle, ConfirmCalibratedCallback cb);
 	LIVESCAN_API void SetSendLatestFrameCallback(LiveScanClientHandle handle, SendLatestFrameCallback cb);
-	LIVESCAN_API void SetSendLatestMeshCallback(LiveScanClientHandle handle, SendLatestMeshCallback cb);
 	LIVESCAN_API void SetSendRecordedFrameCallback(LiveScanClientHandle handle, SendRecordedFrameCallback cb);
 	LIVESCAN_API void SetConfirmSyncStateCallback(LiveScanClientHandle handle, ConfirmSyncStateCallback cb);
 	LIVESCAN_API void SetConfirmMasterRestartCallback(LiveScanClientHandle handle, ConfirmMasterRestartCallback cb);

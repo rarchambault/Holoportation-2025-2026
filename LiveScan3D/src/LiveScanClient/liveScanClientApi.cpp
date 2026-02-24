@@ -100,14 +100,6 @@ void RequestLatestFrame(LiveScanClientHandle handle)
 	wrapper->client->RequestLatestFrame();
 }
 
-void RequestLatestMesh(LiveScanClientHandle handle)
-{
-	auto* wrapper = static_cast<LiveScanClientWrapper*>(handle);
-	if (!wrapper) return;
-
-	wrapper->client->RequestLatestMesh();
-}
-
 void ReceiveCalibration(LiveScanClientHandle handle, const AffineTransform* transform)
 {
 	auto* wrapper = static_cast<LiveScanClientWrapper*>(handle);
@@ -178,13 +170,6 @@ void SetSendLatestFrameCallback(LiveScanClientHandle handle, SendLatestFrameCall
 	auto* wrapper = static_cast<LiveScanClientWrapper*>(handle);
 	if (wrapper)
 		wrapper->sendLatestFrameCallback = cb;
-}
-
-void SetSendLatestMeshCallback(LiveScanClientHandle handle, SendLatestMeshCallback cb)
-{
-	auto* wrapper = static_cast<LiveScanClientWrapper*>(handle);
-	if (wrapper)
-		wrapper->sendLatestMeshCallback = cb;
 }
 
 void SetSendRecordedFrameCallback(LiveScanClientHandle handle, SendRecordedFrameCallback cb)

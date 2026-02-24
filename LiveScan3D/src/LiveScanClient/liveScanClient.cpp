@@ -37,6 +37,7 @@ Kowalski, M.; Naruniec, J.; Daniluk, M.: "LiveScan3D: A Fast and Inexpensive
 #include <json.hpp>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/features/normal_3d_omp.h>
+#include <unordered_map>
 
 
 LiveScanClient::LiveScanClient(int index) :
@@ -458,12 +459,12 @@ void LiveScanClient::ProcessingLoop()
 	ne.setSearchMethod(normalTree);
 
 	pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
-	gp3.setSearchRadius(0.1f);
+	gp3.setSearchRadius(0.015f);
 	gp3.setMu(2.5f);
-	gp3.setMaximumNearestNeighbors(50);
+	gp3.setMaximumNearestNeighbors(100);
 	gp3.setMaximumSurfaceAngle(M_PI / 4);
-	gp3.setMinimumAngle(M_PI / 18);
-	gp3.setMaximumAngle(2 * M_PI / 3);
+	gp3.setMinimumAngle(M_PI / 36);
+	gp3.setMaximumAngle(5 * M_PI / 6);
 	gp3.setNormalConsistency(false);
 	gp3.setSearchMethod(tree);
 
@@ -479,7 +480,6 @@ void LiveScanClient::ProcessingLoop()
 
 			if (!isClientThreadRunning) break;
 
-			// Grab the absolute newest frame and clear the flag
 			localVertices = rawBufferVertices;
 			localColors = rawBufferColors;
 			hasNewFrameToProcess = false;
@@ -488,25 +488,44 @@ void LiveScanClient::ProcessingLoop()
 		// 2. RUN HEAVY MATH
 		unsigned int numVertices = localVertices.size();
 		vector<Point3f> allVertices(numVertices);
-		int goodVerticesCount = 0;
 		Point3f invalidPoint = Point3f(0, 0, 0, true);
 
 		voxelGridFilter.Reset();
 
-		// Apply calibration and remove points outside bounds
+		// =========================================================
+		// SETUP: THE "MESS" REMOVER (Density Filter)
+		// =========================================================
+		const float densityVoxelSize = 0.006f;
+		const int minPointsPerVoxel = 12; // Your original magic number!
+
+		std::unordered_map<uint64_t, int> voxelCounts;
+		vector<uint64_t> vertexVoxelKeys(numVertices, 0);
+
+		auto HashVoxel = [](int x, int y, int z) -> uint64_t {
+			return (static_cast<uint64_t>(x) & 0x1FFFFF) << 42 |
+				(static_cast<uint64_t>(y) & 0x1FFFFF) << 21 |
+				(static_cast<uint64_t>(z) & 0x1FFFFF);
+			};
+
+		// PASS 1: Calibration, Bounds, and Density Counting
 		for (unsigned int vertexIndex = 0; vertexIndex < numVertices; vertexIndex++)
 		{
 			Point3f temp = localVertices[vertexIndex];
 
+			// Ignore native bad camera points instantly
+			if (temp.Invalid)
+			{
+				allVertices[vertexIndex] = invalidPoint;
+				continue;
+			}
+
 			if (calibration.isCalibrated)
 			{
-				// Rotate the point to match the calibration
 				temp.X += calibration.worldT[0];
 				temp.Y += calibration.worldT[1];
 				temp.Z += calibration.worldT[2];
 				temp = RotatePoint(temp, calibration.worldR);
 
-				// Remove the point if it is outside bounds
 				if (temp.X < bounds[0] || temp.X > bounds[3] ||
 					temp.Y < bounds[1] || temp.Y > bounds[4] ||
 					temp.Z < bounds[2] || temp.Z > bounds[5])
@@ -523,55 +542,51 @@ void LiveScanClient::ProcessingLoop()
 			}
 
 			allVertices[vertexIndex] = temp;
-			goodVerticesCount++;
+
+			// Count this point for the density filter
+			int vx = static_cast<int>(floor(temp.X / densityVoxelSize));
+			int vy = static_cast<int>(floor(temp.Y / densityVoxelSize));
+			int vz = static_cast<int>(floor(temp.Z / densityVoxelSize));
+			uint64_t key = HashVoxel(vx, vy, vz);
+			vertexVoxelKeys[vertexIndex] = key;
+			voxelCounts[key]++;
 		}
 
-		// Apply simple voxel density-based filter
-		const float voxelSize = 0.02f;
-		const int minPointsPerVoxel = 1;
+		// =========================================================
+		// PASS 2: Apply Density Filter, Downsample, and Pack
+		// =========================================================
+		const float downsampleVoxelSize = 0.002f; // Slight downsample for meshing speed
+		std::unordered_map<uint64_t, bool> downsampleOccupied;
 
-		std::map<uint64_t, int> voxelCounts;
-		auto HashVoxel = [](int x, int y, int z) -> uint64_t {
-			return (static_cast<uint64_t>(x) & 0x1FFFFF) << 42 |
-				(static_cast<uint64_t>(y) & 0x1FFFFF) << 21 |
-				(static_cast<uint64_t>(z) & 0x1FFFFF);
-			};
-
-		vector<uint64_t> vertexVoxelKeys(numVertices);
-		for (unsigned int i = 0; i < allVertices.size(); ++i)
-		{
-			Point3f& pt = allVertices[i];
-			if (!pt.Invalid)
-			{
-				int vx = static_cast<int>(floor(pt.X / voxelSize));
-				int vy = static_cast<int>(floor(pt.Y / voxelSize));
-				int vz = static_cast<int>(floor(pt.Z / voxelSize));
-				uint64_t key = HashVoxel(vx, vy, vz);
-				vertexVoxelKeys[i] = key;
-				voxelCounts[key]++;
-			}
-			else vertexVoxelKeys[i] = 0;
-		}
-
-		for (unsigned int i = 0; i < allVertices.size(); ++i)
-		{
-			if (!allVertices[i].Invalid && voxelCounts[vertexVoxelKeys[i]] < minPointsPerVoxel)
-			{
-				allVertices[i] = invalidPoint;
-			}
-		}
-
-		vector<Point3f> goodVertices(goodVerticesCount);
-		vector<RGB> goodColorPoints(goodVerticesCount);
-		int goodVerticesShortCounter = 0;
+		vector<Point3f> goodVertices;
+		vector<RGB> goodColorPoints;
+		goodVertices.reserve(numVertices);
+		goodColorPoints.reserve(numVertices);
 
 		for (unsigned int i = 0; i < allVertices.size(); i++)
 		{
 			if (!allVertices[i].Invalid)
 			{
-				goodVertices[goodVerticesShortCounter] = allVertices[i];
-				goodColorPoints[goodVerticesShortCounter] = localColors[i]; // Use localColors!
-				goodVerticesShortCounter++;
+				uint64_t densityKey = vertexVoxelKeys[i];
+
+				// 1. DELETE THE MESS: If the voxel has < 12 points, throw this point away!
+				if (voxelCounts[densityKey] < minPointsPerVoxel)
+				{
+					continue;
+				}
+
+				// 2. TRUE DOWNSAMPLER: Keep only 1 point per small voxel
+				int vx = static_cast<int>(floor(allVertices[i].X / downsampleVoxelSize));
+				int vy = static_cast<int>(floor(allVertices[i].Y / downsampleVoxelSize));
+				int vz = static_cast<int>(floor(allVertices[i].Z / downsampleVoxelSize));
+				uint64_t downsampleKey = HashVoxel(vx, vy, vz);
+
+				if (!downsampleOccupied[downsampleKey])
+				{
+					downsampleOccupied[downsampleKey] = true;
+					goodVertices.push_back(allVertices[i]);
+					goodColorPoints.push_back(localColors[i]);
+				}
 			}
 		}
 
@@ -588,24 +603,48 @@ void LiveScanClient::ProcessingLoop()
 
 		for (auto& p : goodVertices) cloud->push_back(pcl::PointXYZ(p.X, p.Y, p.Z));
 
-		size_t kSearch = std::min<size_t>(20, cloud->size());
+		// CRITICAL CRASH FIX 3: Prevent PCL from meshing empty/tiny clouds
+		if (cloud->size() < 3)
+		{
+			std::lock_guard<std::mutex> lock(dataMutex);
+			lastFrameVertices.clear();
+			lastFrameColors.clear();
+			lastFrameMeshIndices.clear();
+			continue;
+		}
+
+		size_t kSearch = std::min<size_t>(50, cloud->size());
 		ne.setInputCloud(cloud);
 		ne.setKSearch(kSearch);
 		ne.compute(*normals);
 
 		for (size_t i = 0; i < cloud->size(); i++)
 		{
-			pcl::PointNormal pn;
-			pn.x = cloud->points[i].x; pn.y = cloud->points[i].y; pn.z = cloud->points[i].z;
-			if (i < normals->size()) {
-				pn.normal_x = normals->points[i].normal_x;
-				pn.normal_y = normals->points[i].normal_y;
-				pn.normal_z = normals->points[i].normal_z;
-			}
-			else { pn.normal_x = 0.f; pn.normal_y = 0.f; pn.normal_z = 0.f; }
+			// Prevent crash: Skip points with infinite/garbage coordinates
+			if (!pcl::isFinite(cloud->points[i])) continue;
 
-			if (pcl::isFinite(cloud->points[i])) cloudWithNormals->points.push_back(pn);
+			// CRITICAL CRASH FIX 4: The "Depth Tear" NaN Normal Filter
+			if (i >= normals->size() ||
+				std::isnan(normals->points[i].normal_x) ||
+				std::isnan(normals->points[i].normal_y) ||
+				std::isnan(normals->points[i].normal_z))
+			{
+				continue; // Delete this point completely!
+			}
+
+			pcl::PointNormal pn;
+			pn.x = cloud->points[i].x;
+			pn.y = cloud->points[i].y;
+			pn.z = cloud->points[i].z;
+			pn.normal_x = normals->points[i].normal_x;
+			pn.normal_y = normals->points[i].normal_y;
+			pn.normal_z = normals->points[i].normal_z;
+
+			cloudWithNormals->points.push_back(pn);
 		}
+
+		// Final safety check: Did we delete too many bad points?
+		if (cloudWithNormals->size() < 3) continue;
 
 		gp3.setInputCloud(cloudWithNormals);
 
@@ -648,21 +687,18 @@ void LiveScanClient::ProcessingLoop()
 		if (frameCounter % 100 == 0)
 		{
 			json j;
-			// Dump vertices
 			json verts = json::array();
 			for (const auto& v : goodVerticesShort) {
 				verts.push_back({ {"x", v.X}, {"y", v.Y}, {"z", v.Z} });
 			}
 			j["vertices"] = verts;
 
-			// Dump colors
 			json cols = json::array();
 			for (const auto& c : goodColorPoints) {
 				cols.push_back({ {"r", c.Red}, {"g", c.Green}, {"b", c.Blue} });
 			}
 			j["colors"] = cols;
 
-			// Dump indices
 			json tris = json::array();
 			for (size_t i = 0; i < tempMeshIndices.size(); ++i) tris.push_back(tempMeshIndices[i]);
 			j["triangles"] = tris;

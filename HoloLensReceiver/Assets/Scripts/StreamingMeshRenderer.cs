@@ -12,8 +12,8 @@ public class StreamingMeshRenderer : MonoBehaviour
     public bool doubleSided = true;
 
     [Header("Performance & Looks")]
-    [Tooltip("Uncheck this for a massive FPS boost when using the Unlit shader.")]
-    public bool calculateNormals = false;
+    [Tooltip("MUST be checked if using a Lit/Standard shader so light bounces correctly!")]
+    public bool calculateNormals = true; // CHANGED TO TRUE
 
     private Mesh mesh;
     private MeshFilter meshFilter;
@@ -40,12 +40,18 @@ public class StreamingMeshRenderer : MonoBehaviour
         mesh.MarkDynamic();
         meshFilter.mesh = mesh;
 
-        // Use the Unlit shader so shadows don't create fake "holes"
-        var shader = Shader.Find("Particles/Standard Unlit");
+        // ==========================================
+        // SHADER FIX: Switched to a Lit Shader
+        // This allows shadows and highlights to define the 3D curves
+        // ==========================================
         if (meshRenderer.sharedMaterial == null)
         {
-            if (shader != null) meshRenderer.material = new Material(shader);
-            else meshRenderer.material = new Material(Shader.Find("Standard"));
+            // Use Standard shader (or Mobile/Diffuse if you want better performance)
+            Shader shader = Shader.Find("Standard");
+            if (shader != null)
+            {
+                meshRenderer.material = new Material(shader);
+            }
         }
 
         // ==========================================
@@ -71,8 +77,6 @@ public class StreamingMeshRenderer : MonoBehaviour
         networkPackets++;
 
         // 2. CHECK FOR DUPLICATES
-        // If the vertex count AND the exact position of the first vertex match the last frame,
-        // it is a ghost frame sent by the server. 
         bool isDuplicate = false;
         if (vertices != null && vertices.Length == lastVertexCount && vertices.Length > 0)
         {
@@ -117,7 +121,7 @@ public class StreamingMeshRenderer : MonoBehaviour
 
         mesh.RecalculateBounds();
 
-        // Only calculate normals if strictly necessary (Unlit doesn't need them!)
+        // WE NEED NORMALS FOR LIGHTING!
         if (calculateNormals)
         {
             mesh.RecalculateNormals();

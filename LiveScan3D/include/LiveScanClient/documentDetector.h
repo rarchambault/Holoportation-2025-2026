@@ -18,6 +18,12 @@ provided color frame and ranks its detections based on their size and blur.
 #include <vector>
 #include <string>
 #include <mutex>
+#include <functional>
+#include <memory>
+#include <condition_variable>
+#include <thread>
+#include <atomic>
+#include <onnxruntime_cxx_api.h>
 
 class DocumentDetector
 {
@@ -28,19 +34,22 @@ public:
     DocumentDetector();
     ~DocumentDetector();
 
-    void DocumentDetector::SubmitFrame(std::shared_ptr<ob::ColorFrame> color, cv::Mat depth);
+    void SubmitFrame(std::shared_ptr<ob::ColorFrame> color, cv::Mat depth);
 
-    bool DocumentDetector::Detect(
+    bool Detect(
         const std::shared_ptr<ob::ColorFrame>& colorFrame,
         cv::Mat depthFrame,
         cv::Mat& documentData,
         short& documentPictureWidth,
-        short& documentPicutreHeight,
+        short& documentPictureHeight,
         float& documentScore
     );
 
     void SetDetectionCallback(DetectionCallback callback);
     void SetLogger(std::function<void(const std::string&)> loggerFunc);
+
+    // Sets the ONNX model path. Call before the first detection (or right after construction).
+    void SetModelPath(const std::string& onnxPath);
 
 private:
     std::mutex frameMutex;
@@ -58,8 +67,25 @@ private:
     bool stopThread = false;
     std::thread detectThread;
 
+    int stableCount_ = 0;
+    cv::Point2f lastCenter_{ -1.f, -1.f };
+    cv::Rect lastBox_{ 0,0,0,0 };
+
     DetectionCallback resultCallback;
 
+
+    // YOLOv8-seg ONNX Runtime (CPU)
+    std::string modelPath = "document_yolov8seg.onnx";
+    std::unique_ptr<Ort::Env> ortEnv;
+    std::unique_ptr<Ort::Session> ortSession;
+    Ort::SessionOptions ortSessionOptions;
+    std::vector<const char*> inputNames;
+    std::vector<const char*> outputNames;
+    std::vector<std::string> inputNameStrs;
+    std::vector<std::string> outputNameStrs;
+    bool modelLoaded = false;
+
+    bool LoadModelIfNeeded();
     void StartDetectionThread();
     void StopDetectionThread();
     std::function<void(const std::string&)> logFn;

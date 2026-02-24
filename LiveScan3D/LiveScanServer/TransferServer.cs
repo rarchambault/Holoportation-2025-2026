@@ -28,6 +28,7 @@ namespace LiveScanServer
     {
         public List<float> Vertices = new List<float>();
         public List<byte> Colors = new List<byte>();
+        public List<int> MeshIndices = new List<int>();
         public DocumentInfo DocumentInfo = new DocumentInfo();
 
         private const int PointCloudPort = 48002;
@@ -265,7 +266,7 @@ namespace LiveScanServer
                     // Send a point cloud frame
                     lock (Vertices)
                     {
-                        pointCloudClients[i].SendPointCloud(Vertices, Colors);
+                        pointCloudClients[i].SendPointCloud(Vertices, Colors, MeshIndices);
                     }
                 }
 

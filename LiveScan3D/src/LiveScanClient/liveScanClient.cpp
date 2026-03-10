@@ -555,7 +555,7 @@ void LiveScanClient::ProcessingLoop()
 		// =========================================================
 		// PASS 2: Apply Density Filter, Downsample, and Pack
 		// =========================================================
-		const float downsampleVoxelSize = 0.002f; // Slight downsample for meshing speed
+		const float downsampleVoxelSize = 0.005f; // Slight downsample for meshing speed
 		std::unordered_map<uint64_t, bool> downsampleOccupied;
 
 		vector<Point3f> goodVertices;

@@ -94,7 +94,7 @@ Material:
     - _Mode: 4
     - _OcclusionStrength: 1
     - _Parallax: 0.02
-    - _PointSize: 0.0031781339
+    - _PointSize: 0.002036978
     - _Size: 0.004
     - _SmoothnessTextureChannel: 0
     - _SoftParticlesEnabled: 0

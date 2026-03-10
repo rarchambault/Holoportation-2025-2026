@@ -51,7 +51,7 @@ public class PointCloudRenderer : MonoBehaviour
     void Start()
     {
         // Initialize point cloud mesh
-        this.transform.rotation = rotation;
+        //this.transform.rotation = rotation;
         mesh = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
         mesh.MarkDynamic(); // Hint for performance
 

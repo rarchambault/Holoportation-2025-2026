@@ -64,8 +64,8 @@ public class StreamingMeshRenderer : MonoBehaviour
         }
 
         // Apply Transforms (Hardware acceleration instead of C# loops)
-        transform.localPosition = positionOffset;
-        transform.localScale = new Vector3(flipX ? -scale : scale, scale, scale);
+        //transform.localPosition = positionOffset;
+        //transform.localScale = new Vector3(flipX ? -scale : scale, scale, scale);
 
         // Initialize the timer
         lastLogTime = Time.realtimeSinceStartup;

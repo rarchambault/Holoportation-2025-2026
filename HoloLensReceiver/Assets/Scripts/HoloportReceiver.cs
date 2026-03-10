@@ -30,11 +30,13 @@ public class HoloportReceiver : MonoBehaviour
 
     private StreamingMeshRenderer meshRenderer;
     private DocumentRenderer documentRenderer;
+    private PointCloudRenderer pointCloudRenderer; // <-- ADDED POINT CLOUD RENDERER
 
     private void Start()
     {
         meshRenderer = GetComponent<StreamingMeshRenderer>();
         documentRenderer = GetComponent<DocumentRenderer>();
+        pointCloudRenderer = GetComponentInChildren<PointCloudRenderer>(); // <-- INITIALIZED
     }
 
     private void Update()
@@ -85,6 +87,7 @@ public class HoloportReceiver : MonoBehaviour
         }
         catch (Exception e)
         {
+            Debug.LogError("CONNECTION FAILED: " + e.Message);
             isPointCloudClientConnected = false;
             isPointCloudClientConnecting = false;
         }
@@ -152,6 +155,8 @@ public class HoloportReceiver : MonoBehaviour
                     ushort uy = BitConverter.ToUInt16(verticesBytes, b + 2);
                     ushort uz = BitConverter.ToUInt16(verticesBytes, b + 4);
 
+                    // Note: Your old code had "y = -1.0f * DecodeByteToFloat(...)". 
+                    // If your mesh looks upside down, add the -1.0f * back to the 'y' line below!
                     float x = DecodeUShortToFloat(ux, xRangeCenter, scale);
                     float y = DecodeUShortToFloat(uy, yRangeCenter, scale);
                     float z = DecodeUShortToFloat(uz, zRangeCenter, scale);
@@ -166,9 +171,16 @@ public class HoloportReceiver : MonoBehaviour
                     colors[i] = new Color32(colorsBytes[b], colorsBytes[b + 1], colorsBytes[b + 2], 255);
                 }
 
+                // --- 1. SEND TO MESH RENDERER ---
                 if (meshRenderer != null)
                 {
                     meshRenderer.EnqueueMesh(vertices, colors, meshIndices);
+                }
+
+                // --- 2. SEND TO POINT CLOUD RENDERER (The "Spackle" Overlay) ---
+                if (pointCloudRenderer != null)
+                {
+                    pointCloudRenderer.EnqueuePointCloud(scale, vertices, colors);
                 }
             }
             catch (Exception e)

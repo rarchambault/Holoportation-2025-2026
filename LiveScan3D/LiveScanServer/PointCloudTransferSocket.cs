@@ -6,7 +6,6 @@ namespace LiveScanServer
 {
     public class PointCloudTransferSocket : TransferSocketBase
     {
-        // EXPANDED RANGE: 3 meters instead of 30cm! No more clipping the basketball.
         private const float Range = 3.0f;
         private const float HalfRange = Range / 2.0f;
 
@@ -33,7 +32,7 @@ namespace LiveScanServer
                     int vertexCount = vertices.Count / 3;
                     float scale = MaxScale; // Always use max 16-bit precision
 
-                    // 1:1 PASS-THROUGH (No deleted vertices, no destroyed triangles!)
+                
                     byte[] vertexBuffer = new byte[vertexCount * 3 * sizeof(ushort)];
 
                     for (int i = 0; i < vertices.Count; i += 3)

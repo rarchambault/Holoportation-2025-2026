@@ -445,9 +445,6 @@ void LiveScanClient::UpdateFrame()
 /// </summary>
 void LiveScanClient::ProcessingLoop()
 {
-	// =========================================================
-	// MEMORY POOLING (Allocated ONCE, reused forever to save CPU)
-	// =========================================================
 	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
 	pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>());
 	pcl::PointCloud<pcl::PointNormal>::Ptr cloudWithNormals(new pcl::PointCloud<pcl::PointNormal>());
@@ -473,7 +470,6 @@ void LiveScanClient::ProcessingLoop()
 
 	while (isClientThreadRunning)
 	{
-		// 1. Wait for new data (or exit signal)
 		{
 			std::unique_lock<std::mutex> lock(frameMutex);
 			frameCV.wait(lock, [this] { return hasNewFrameToProcess || !isClientThreadRunning; });
@@ -485,18 +481,14 @@ void LiveScanClient::ProcessingLoop()
 			hasNewFrameToProcess = false;
 		}
 
-		// 2. RUN HEAVY MATH
 		unsigned int numVertices = localVertices.size();
 		vector<Point3f> allVertices(numVertices);
 		Point3f invalidPoint = Point3f(0, 0, 0, true);
 
 		voxelGridFilter.Reset();
 
-		// =========================================================
-		// SETUP: THE "MESS" REMOVER (Density Filter)
-		// =========================================================
 		const float densityVoxelSize = 0.006f;
-		const int minPointsPerVoxel = 12; // Your original magic number!
+		const int minPointsPerVoxel = 12; 
 
 		std::unordered_map<uint64_t, int> voxelCounts;
 		vector<uint64_t> vertexVoxelKeys(numVertices, 0);
@@ -507,7 +499,6 @@ void LiveScanClient::ProcessingLoop()
 				(static_cast<uint64_t>(z) & 0x1FFFFF);
 			};
 
-		// PASS 1: Calibration, Bounds, and Density Counting
 		for (unsigned int vertexIndex = 0; vertexIndex < numVertices; vertexIndex++)
 		{
 			Point3f temp = localVertices[vertexIndex];
@@ -552,9 +543,6 @@ void LiveScanClient::ProcessingLoop()
 			voxelCounts[key]++;
 		}
 
-		// =========================================================
-		// PASS 2: Apply Density Filter, Downsample, and Pack
-		// =========================================================
 		const float downsampleVoxelSize = 0.005f; // Slight downsample for meshing speed
 		std::unordered_map<uint64_t, bool> downsampleOccupied;
 
@@ -569,13 +557,11 @@ void LiveScanClient::ProcessingLoop()
 			{
 				uint64_t densityKey = vertexVoxelKeys[i];
 
-				// 1. DELETE THE MESS: If the voxel has < 12 points, throw this point away!
 				if (voxelCounts[densityKey] < minPointsPerVoxel)
 				{
 					continue;
 				}
 
-				// 2. TRUE DOWNSAMPLER: Keep only 1 point per small voxel
 				int vx = static_cast<int>(floor(allVertices[i].X / downsampleVoxelSize));
 				int vy = static_cast<int>(floor(allVertices[i].Y / downsampleVoxelSize));
 				int vz = static_cast<int>(floor(allVertices[i].Z / downsampleVoxelSize));
@@ -595,7 +581,6 @@ void LiveScanClient::ProcessingLoop()
 		vector<Point3s> goodVerticesShort(goodVertices.size());
 		for (size_t i = 0; i < goodVertices.size(); i++) goodVerticesShort[i] = goodVertices[i];
 
-		// --- PCL MESHING ---
 		cloud->clear();
 		normals->clear();
 		cloudWithNormals->clear();
@@ -603,7 +588,6 @@ void LiveScanClient::ProcessingLoop()
 
 		for (auto& p : goodVertices) cloud->push_back(pcl::PointXYZ(p.X, p.Y, p.Z));
 
-		// CRITICAL CRASH FIX 3: Prevent PCL from meshing empty/tiny clouds
 		if (cloud->size() < 3)
 		{
 			std::lock_guard<std::mutex> lock(dataMutex);
@@ -620,16 +604,14 @@ void LiveScanClient::ProcessingLoop()
 
 		for (size_t i = 0; i < cloud->size(); i++)
 		{
-			// Prevent crash: Skip points with infinite/garbage coordinates
 			if (!pcl::isFinite(cloud->points[i])) continue;
 
-			// CRITICAL CRASH FIX 4: The "Depth Tear" NaN Normal Filter
 			if (i >= normals->size() ||
 				std::isnan(normals->points[i].normal_x) ||
 				std::isnan(normals->points[i].normal_y) ||
 				std::isnan(normals->points[i].normal_z))
 			{
-				continue; // Delete this point completely!
+				continue; // Delete this point completely
 			}
 
 			pcl::PointNormal pn;
@@ -643,7 +625,6 @@ void LiveScanClient::ProcessingLoop()
 			cloudWithNormals->points.push_back(pn);
 		}
 
-		// Final safety check: Did we delete too many bad points?
 		if (cloudWithNormals->size() < 3) continue;
 
 		gp3.setInputCloud(cloudWithNormals);
@@ -672,9 +653,6 @@ void LiveScanClient::ProcessingLoop()
 			}
 		}
 
-		// =========================================================
-		// 3. FINISH LINE: Update the network pipeline variables
-		// =========================================================
 		{
 			std::lock_guard<std::mutex> lock(dataMutex);
 			lastFrameVertices = goodVerticesShort;
@@ -682,7 +660,6 @@ void LiveScanClient::ProcessingLoop()
 			lastFrameMeshIndices = tempMeshIndices;
 		}
 
-		// --- JSON DUMPING ---
 		using json = nlohmann::json;
 		if (frameCounter % 100 == 0)
 		{

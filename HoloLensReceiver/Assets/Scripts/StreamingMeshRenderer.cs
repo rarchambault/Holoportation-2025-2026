@@ -13,18 +13,16 @@ public class StreamingMeshRenderer : MonoBehaviour
 
     [Header("Performance & Looks")]
     [Tooltip("MUST be checked if using a Lit/Standard shader so light bounces correctly!")]
-    public bool calculateNormals = true; // CHANGED TO TRUE
+    public bool calculateNormals = true; 
 
     private Mesh mesh;
     private MeshFilter meshFilter;
     private MeshRenderer meshRenderer;
 
-    // --- TRUE FPS TRACKING ---
     private int networkPackets = 0;
     private int uniqueFrames = 0;
     private float lastLogTime = 0f;
 
-    // --- FILTER MEMORY ---
     private int lastVertexCount = -1;
     private Vector3 lastFirstVertex = Vector3.zero;
 
@@ -34,19 +32,15 @@ public class StreamingMeshRenderer : MonoBehaviour
         meshRenderer = GetComponent<MeshRenderer>();
 
         mesh = new Mesh();
-        // Allow meshes larger than 65k vertices
+
         mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-        // Optimize the mesh for frequent frame-by-frame updates
+
         mesh.MarkDynamic();
         meshFilter.mesh = mesh;
 
-        // ==========================================
-        // SHADER FIX: Switched to a Lit Shader
-        // This allows shadows and highlights to define the 3D curves
-        // ==========================================
         if (meshRenderer.sharedMaterial == null)
         {
-            // Use Standard shader (or Mobile/Diffuse if you want better performance)
+
             Shader shader = Shader.Find("Standard");
             if (shader != null)
             {
@@ -54,29 +48,22 @@ public class StreamingMeshRenderer : MonoBehaviour
             }
         }
 
-        // ==========================================
-        // THE FIX: TURN OFF BACKFACE CULLING
-        // Forces Unity to draw the "inside" of the triangles
-        // ==========================================
+
         if (doubleSided && meshRenderer.material.HasProperty("_Cull"))
         {
             meshRenderer.material.SetFloat("_Cull", (float)UnityEngine.Rendering.CullMode.Off);
         }
 
-        // Apply Transforms (Hardware acceleration instead of C# loops)
         //transform.localPosition = positionOffset;
         //transform.localScale = new Vector3(flipX ? -scale : scale, scale, scale);
 
-        // Initialize the timer
         lastLogTime = Time.realtimeSinceStartup;
     }
 
     public void EnqueueMesh(Vector3[] vertices, Color32[] colors, int[] triangles)
     {
-        // 1. ALWAYS Count the network packet
         networkPackets++;
 
-        // 2. CHECK FOR DUPLICATES
         bool isDuplicate = false;
         if (vertices != null && vertices.Length == lastVertexCount && vertices.Length > 0)
         {
@@ -86,33 +73,27 @@ public class StreamingMeshRenderer : MonoBehaviour
             }
         }
 
-        // 3. TRUE LOGGING (Based on real-world time)
         float currentTime = Time.realtimeSinceStartup;
         float timeElapsed = currentTime - lastLogTime;
 
         if (timeElapsed >= 1.0f)
         {
-            // Calculate FPS based on exactly how much real time passed
             float netFPS = networkPackets / timeElapsed;
             float realFPS = uniqueFrames / timeElapsed;
 
             Debug.Log($"[FPS] Network Receives: {netFPS:F1} fps");
 
-            // Reset counters
             networkPackets = 0;
             uniqueFrames = 0;
             lastLogTime = currentTime;
         }
 
-        // 4. IF DUPLICATE, STOP HERE
         if (isDuplicate) return;
 
-        // 5. UPDATE MESH (Only for brand new data)
         lastVertexCount = vertices.Length;
         if (vertices.Length > 0) lastFirstVertex = vertices[0];
         uniqueFrames++;
 
-        // False keeps the memory layout, which is slightly faster for dynamic meshes
         mesh.Clear(false);
 
         mesh.SetVertices(vertices);
@@ -121,7 +102,6 @@ public class StreamingMeshRenderer : MonoBehaviour
 
         mesh.RecalculateBounds();
 
-        // WE NEED NORMALS FOR LIGHTING!
         if (calculateNormals)
         {
             mesh.RecalculateNormals();

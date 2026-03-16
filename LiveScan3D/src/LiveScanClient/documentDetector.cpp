@@ -259,7 +259,7 @@ bool DocumentDetector::Detect(
 
     // Convert Orbbec color frame to OpenCV Mat (RGB)
     cv::Mat originalImage(colorFrame->height(), colorFrame->width(), CV_8UC3, (void*)colorFrame->data());
-    //cv::cvtColor(originalImage, originalImage, cv::COLOR_BGR2RGB);
+    cv::cvtColor(originalImage, originalImage, cv::COLOR_BGR2RGB);
 
     // --- Preprocess: letterbox to model input size (default 640) ---
     constexpr int kInputSize = 640;
@@ -484,6 +484,11 @@ bool DocumentDetector::Detect(
             if (safeBox.width <= 0 || safeBox.height <= 0) continue;
 
             documentData = originalImage(safeBox).clone();
+            cv::resize(documentData, documentData, cv::Size(), 2.0, 2.0, cv::INTER_CUBIC);
+
+            cv::Mat blurred;
+            cv::GaussianBlur(documentData, blurred, cv::Size(0, 0), 1.0);
+            cv::addWeighted(documentData, 1.5, blurred, -0.5, 0, documentData);
 
             static int dbg = 0;
             if (dbg++ % 5 == 0) { // save every ~30 detections

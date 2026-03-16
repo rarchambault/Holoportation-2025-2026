@@ -129,8 +129,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fcc707840eb207c41955e6a1655ed7c7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  MaxImageSize: 3
-  MinImageSize: 2
+  MaxImageSize: 5
+  MinImageSize: 4
   TargetRenderer: {fileID: 9164001801940079612}
 --- !u!1 &1787503178510128353
 GameObject:

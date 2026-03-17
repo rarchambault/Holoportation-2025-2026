@@ -151,6 +151,9 @@ public class HoloportReceiver : MonoBehaviour
             // Shift the copy offset by 4 bytes (so it writes to InstanceCount)
             ComputeBuffer.CopyCount(triangleBuffer, countBuffer, 4);
 
+            // Give the Material the data!
+            renderMaterial.SetBuffer("TriangleBuffer", triangleBuffer);
+
             // Draw it directly!
             Graphics.DrawProceduralIndirect(renderMaterial, massiveBounds, MeshTopology.Triangles, countBuffer, 0, null, null, UnityEngine.Rendering.ShadowCastingMode.On, true, gameObject.layer);
         }

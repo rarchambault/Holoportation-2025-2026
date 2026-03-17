@@ -1,0 +1,185 @@
+#pragma kernel CSClear
+#pragma kernel CSMain
+#pragma kernel CSMarch
+
+#include "MarchingCubesTables.cginc"
+
+// --- Variables ---
+StructuredBuffer<float3> PositionBuffer;
+StructuredBuffer<float4> ColorBuffer;
+int NumPoints;
+int GridResolution;
+
+// The density volume we write to and read from
+RWTexture3D<float> DensityGrid;
+
+struct Triangle
+{
+    float3 vertexC;
+    float3 vertexB;
+    float3 vertexA;
+    float4 color;
+};
+
+AppendStructuredBuffer<Triangle> OutputTriangles;
+
+// ==========================================
+// HELPER: Vertex Interpolation
+// ==========================================
+// This function finds the exact point where the surface crosses an edge
+// between two corners. It prevents the "blocky" look.
+float3 VertexInterp(float isoLevel, float3 p1, float3 p2, float valp1, float valp2)
+{
+    // If the difference is extremely small, just return the first point to avoid division by zero
+    if (abs(isoLevel - valp1) < 0.00001)
+        return p1;
+    if (abs(isoLevel - valp2) < 0.00001)
+        return p2;
+    if (abs(valp1 - valp2) < 0.00001)
+        return p1;
+
+    // Linear interpolation based on density values
+    float mu = (isoLevel - valp1) / (valp2 - valp1);
+    float3 p = p1 + mu * (p2 - p1);
+    
+    return p;
+}
+
+// ==========================================
+// KERNEL 1: Clear the Grid
+// ==========================================
+[numthreads(8, 8, 8)]
+void CSClear(uint3 id : SV_DispatchThreadID)
+{
+    DensityGrid[id] = 0.0;
+}
+
+// ==========================================
+// KERNEL 2: Voxelize (Splatting)
+// ==========================================
+[numthreads(64, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint) NumPoints)
+        return;
+
+    float3 pos = PositionBuffer[id.x];
+    
+    // Convert world position into grid coordinates
+    // We add 0.15f to shift negative values (range is -0.15 to +0.15) into positive grid space (0 to 0.3)
+    float3 gridPos = (pos + 0.15f) * (GridResolution / 0.3f);
+    int3 voxelCoords = (int3) gridPos;
+
+    // Safety bounds check
+    if (voxelCoords.x >= 0 && voxelCoords.x < GridResolution &&
+        voxelCoords.y >= 0 && voxelCoords.y < GridResolution &&
+        voxelCoords.z >= 0 && voxelCoords.z < GridResolution)
+    {
+        // "Splat" the point into the voxel
+        // (You can increase this value or blur it later to fill larger holes)
+        DensityGrid[voxelCoords] += 1.0;
+    }
+}
+
+// ==========================================
+// KERNEL 3: Marching Cubes
+// ==========================================
+[numthreads(8, 8, 8)]
+void CSMarch(uint3 id : SV_DispatchThreadID)
+{
+    // Ensure we don't calculate outside the grid
+    if (id.x >= (uint) (GridResolution - 1) ||
+        id.y >= (uint) (GridResolution - 1) ||
+        id.z >= (uint) (GridResolution - 1))
+        return;
+
+    // 1. Get the density values at the 8 corners of the current cube
+    float cubeValues[8];
+    cubeValues[0] = DensityGrid[id + uint3(0, 0, 1)];
+    cubeValues[1] = DensityGrid[id + uint3(1, 0, 1)];
+    cubeValues[2] = DensityGrid[id + uint3(1, 0, 0)];
+    cubeValues[3] = DensityGrid[id + uint3(0, 0, 0)];
+    cubeValues[4] = DensityGrid[id + uint3(0, 1, 1)];
+    cubeValues[5] = DensityGrid[id + uint3(1, 1, 1)];
+    cubeValues[6] = DensityGrid[id + uint3(1, 1, 0)];
+    cubeValues[7] = DensityGrid[id + uint3(0, 1, 0)];
+
+    float isoLevel = 0.5; // The threshold density for surface creation
+
+    // 2. Determine the 8-bit index (which corners are "inside" the surface)
+    int cubeIndex = 0;
+    if (cubeValues[0] < isoLevel)
+        cubeIndex |= 1;
+    if (cubeValues[1] < isoLevel)
+        cubeIndex |= 2;
+    if (cubeValues[2] < isoLevel)
+        cubeIndex |= 4;
+    if (cubeValues[3] < isoLevel)
+        cubeIndex |= 8;
+    if (cubeValues[4] < isoLevel)
+        cubeIndex |= 16;
+    if (cubeValues[5] < isoLevel)
+        cubeIndex |= 32;
+    if (cubeValues[6] < isoLevel)
+        cubeIndex |= 64;
+    if (cubeValues[7] < isoLevel)
+        cubeIndex |= 128;
+
+    // If the cube is entirely inside or entirely outside the surface, stop here
+    if (edgeTable[cubeIndex] == 0)
+        return;
+
+    // 3. Find the exact positions of the 8 corners in World Space
+    float scale = 0.3f / GridResolution; // How big is one voxel in real world meters?
+    float3 cubePositions[8];
+    for (int i = 0; i < 8; i++)
+    {
+        // Convert grid coordinates back to world coordinates
+        cubePositions[i] = ((float3(id) + cornerOffsets[i]) * scale) - 0.15f;
+    }
+
+    // 4. Interpolate the vertices where the surface intersects the edges
+    float3 vertList[12];
+    int edgeFlags = edgeTable[cubeIndex];
+
+    // If an edge is intersected (bit is 1), find the exact point
+    if (edgeFlags & 1)
+        vertList[0] = VertexInterp(isoLevel, cubePositions[0], cubePositions[1], cubeValues[0], cubeValues[1]);
+    if (edgeFlags & 2)
+        vertList[1] = VertexInterp(isoLevel, cubePositions[1], cubePositions[2], cubeValues[1], cubeValues[2]);
+    if (edgeFlags & 4)
+        vertList[2] = VertexInterp(isoLevel, cubePositions[2], cubePositions[3], cubeValues[2], cubeValues[3]);
+    if (edgeFlags & 8)
+        vertList[3] = VertexInterp(isoLevel, cubePositions[3], cubePositions[0], cubeValues[3], cubeValues[0]);
+    if (edgeFlags & 16)
+        vertList[4] = VertexInterp(isoLevel, cubePositions[4], cubePositions[5], cubeValues[4], cubeValues[5]);
+    if (edgeFlags & 32)
+        vertList[5] = VertexInterp(isoLevel, cubePositions[5], cubePositions[6], cubeValues[5], cubeValues[6]);
+    if (edgeFlags & 64)
+        vertList[6] = VertexInterp(isoLevel, cubePositions[6], cubePositions[7], cubeValues[6], cubeValues[7]);
+    if (edgeFlags & 128)
+        vertList[7] = VertexInterp(isoLevel, cubePositions[7], cubePositions[4], cubeValues[7], cubeValues[4]);
+    if (edgeFlags & 256)
+        vertList[8] = VertexInterp(isoLevel, cubePositions[0], cubePositions[4], cubeValues[0], cubeValues[4]);
+    if (edgeFlags & 512)
+        vertList[9] = VertexInterp(isoLevel, cubePositions[1], cubePositions[5], cubeValues[1], cubeValues[5]);
+    if (edgeFlags & 1024)
+        vertList[10] = VertexInterp(isoLevel, cubePositions[2], cubePositions[6], cubeValues[2], cubeValues[6]);
+    if (edgeFlags & 2048)
+        vertList[11] = VertexInterp(isoLevel, cubePositions[3], cubePositions[7], cubeValues[3], cubeValues[7]);
+
+    // 5. Build the final triangles and push them to the AppendBuffer
+    for (int j = 0; triTable[cubeIndex][j] != -1; j += 3)
+    {
+        Triangle tri;
+        tri.vertexA = vertList[triTable[cubeIndex][j]];
+        tri.vertexB = vertList[triTable[cubeIndex][j + 1]];
+        tri.vertexC = vertList[triTable[cubeIndex][j + 2]];
+        
+        // For now, assigning a default color. 
+        // We can sample the nearest point color later.
+        tri.color = float4(0.8, 0.8, 0.8, 1.0);
+
+        OutputTriangles.Append(tri);
+    }
+}

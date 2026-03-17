@@ -117,6 +117,9 @@ MonoBehaviour:
   PointCloudPort: 48002
   DocumentPort: 48003
   ConnectionRetryInterval: 10
+  marchingCubesShader: {fileID: 0}
+  gridResolution: 128
+  renderMaterial: {fileID: 2100000, guid: a054bbc0f6b64094ca8265fe122193b6, type: 2}
 --- !u!114 &1940077475644994909
 MonoBehaviour:
   m_ObjectHideFlags: 0

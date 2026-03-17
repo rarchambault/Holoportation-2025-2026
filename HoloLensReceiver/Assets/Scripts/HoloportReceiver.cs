@@ -48,13 +48,62 @@ public class HoloportReceiver : MonoBehaviour
     private bool isDocumentClientConnecting = false;
     private float documentConnectionTimer = 0.0f;
 
+    public ComputeShader marchingCubesShader;
+    private ComputeBuffer positionBuffer;
+    private ComputeBuffer colorBuffer;
+
+    // The Grid
+    public int gridResolution = 128; // Size of the 3D voxel grid
+    private RenderTexture densityGrid;
+
+    // The Triangles
+    private ComputeBuffer triangleBuffer;
+    public Material renderMaterial; // We will need a shader on this to draw the buffer
+    private ComputeBuffer countBuffer; // Used to count how many triangles were generated
+
+    // A struct to hold the triangle data (matches the HLSL side)
+    public struct Triangle
+    {
+        public Vector3 vertexC;
+        public Vector3 vertexB;
+        public Vector3 vertexA;
+        public Color32 color;
+    }
+
+
+
     private PointCloudRenderer pointCloudRenderer;
     private DocumentRenderer documentRenderer;
+
+    private void OnDisable()
+    {
+        positionBuffer?.Release();
+        colorBuffer?.Release();
+        triangleBuffer?.Release();
+        countBuffer?.Release();
+
+        if (densityGrid != null)
+        {
+            densityGrid.Release();
+        }
+    }
 
     private void Start()
     {
         pointCloudRenderer = GetComponent<PointCloudRenderer>();
         documentRenderer = GetComponent<DocumentRenderer>();
+
+        // 1. Create the 3D Density Grid
+        densityGrid = new RenderTexture(gridResolution, gridResolution, 0, RenderTextureFormat.RFloat);
+        densityGrid.dimension = UnityEngine.Rendering.TextureDimension.Tex3D;
+        densityGrid.volumeDepth = gridResolution;
+        densityGrid.enableRandomWrite = true; // Crucial for Compute Shaders
+        densityGrid.Create();
+
+        // 2. Clear the grid to 0 using the shader (we'll add a Clear kernel to the HLSL next)
+        int clearKernel = marchingCubesShader.FindKernel("CSClear");
+        marchingCubesShader.SetTexture(clearKernel, "DensityGrid", densityGrid);
+        marchingCubesShader.Dispatch(clearKernel, gridResolution / 8, gridResolution / 8, gridResolution / 8);
     }
 
     void Update()
@@ -169,7 +218,64 @@ public class HoloportReceiver : MonoBehaviour
                 Color32[] colors;
 
                 DeserializePointCloud(numPoints, scale, verticesBytes, colorsBytes, out vertices, out colors);
-                pointCloudRenderer.EnqueuePointCloud(scale, vertices, colors);
+
+                // 1. Initialize or Resize Buffers if point count changed
+                if (positionBuffer == null || positionBuffer.count != numPoints)
+                {
+                    positionBuffer?.Release();
+                    colorBuffer?.Release();
+                    positionBuffer = new ComputeBuffer(numPoints, sizeof(float) * 3);
+                    colorBuffer = new ComputeBuffer(numPoints, sizeof(byte) * 4);
+                }
+
+                // 2. Upload data to GPU
+                positionBuffer.SetData(vertices);
+                colorBuffer.SetData(colors);
+
+                // 3. Dispatch the Compute Shader (Voxelization & Meshing)
+                int kernelHandle = marchingCubesShader.FindKernel("CSMain");
+                marchingCubesShader.SetBuffer(kernelHandle, "PositionBuffer", positionBuffer);
+                marchingCubesShader.SetBuffer(kernelHandle, "ColorBuffer", colorBuffer);
+                marchingCubesShader.SetInt("NumPoints", numPoints);
+
+                marchingCubesShader.SetTexture(kernelHandle, "DensityGrid", densityGrid);
+
+                // Calculate thread groups (assuming 64 threads per group in the shader)
+                int groups = Mathf.CeilToInt(numPoints / 64f);
+                // --- THE GPU PIPELINE ---
+
+                // 1. CLEAR THE GRID
+                int clearKernel = marchingCubesShader.FindKernel("CSClear");
+                marchingCubesShader.Dispatch(clearKernel, gridResolution / 8, gridResolution / 8, gridResolution / 8);
+
+                // 2. SPLAT POINTS (Voxelize)
+                int mainKernel = marchingCubesShader.FindKernel("CSMain");
+                marchingCubesShader.SetBuffer(mainKernel, "PositionBuffer", positionBuffer);
+                marchingCubesShader.SetBuffer(mainKernel, "ColorBuffer", colorBuffer);
+                marchingCubesShader.SetInt("NumPoints", numPoints);
+                marchingCubesShader.SetInt("GridResolution", gridResolution);
+                marchingCubesShader.SetTexture(mainKernel, "DensityGrid", densityGrid);
+
+                int splatGroups = Mathf.CeilToInt(numPoints / 64f);
+                marchingCubesShader.Dispatch(mainKernel, splatGroups, 1, 1);
+
+                // 3. MARCHING CUBES
+                // Set up the Triangle Append Buffer (Max possible triangles = grid^3 * 5)
+                int maxTriangles = gridResolution * gridResolution * gridResolution * 5;
+                if (triangleBuffer == null)
+                {
+                    // 3 Vector3s (36 bytes) + 1 Color32 (4 bytes) = 40 bytes stride
+                    triangleBuffer = new ComputeBuffer(maxTriangles, 40, ComputeBufferType.Append);
+                    countBuffer = new ComputeBuffer(1, sizeof(int), ComputeBufferType.IndirectArguments);
+                }
+
+                triangleBuffer.SetCounterValue(0); // Reset the append counter
+                int marchKernel = marchingCubesShader.FindKernel("CSMarch");
+                marchingCubesShader.SetTexture(marchKernel, "DensityGrid", densityGrid);
+                marchingCubesShader.SetBuffer(marchKernel, "OutputTriangles", triangleBuffer);
+                marchingCubesShader.SetInt("GridResolution", gridResolution);
+
+                marchingCubesShader.Dispatch(marchKernel, gridResolution / 8, gridResolution / 8, gridResolution / 8);
             }
             catch (Exception)
             {
@@ -183,6 +289,22 @@ public class HoloportReceiver : MonoBehaviour
                     gameObject.GetComponent<MeshRenderer>().enabled = false;
                 }
             }
+        }
+    }
+
+    private void OnRenderObject()
+    {
+        if (triangleBuffer != null && renderMaterial != null)
+        {
+            // Link the GPU triangle buffer to your rendering material
+            renderMaterial.SetPass(0);
+            renderMaterial.SetBuffer("TriangleBuffer", triangleBuffer);
+
+            // Copy the exact number of triangles generated into our count buffer
+            ComputeBuffer.CopyCount(triangleBuffer, countBuffer, 0);
+
+            // Draw the triangles without bringing them back to the CPU!
+            Graphics.DrawProceduralIndirectNow(MeshTopology.Triangles, countBuffer, 0);
         }
     }
 

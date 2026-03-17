@@ -264,9 +264,13 @@ public class HoloportReceiver : MonoBehaviour
                 int maxTriangles = gridResolution * gridResolution * gridResolution * 5;
                 if (triangleBuffer == null)
                 {
-                    // 3 Vector3s (36 bytes) + 1 Color32 (4 bytes) = 40 bytes stride
                     triangleBuffer = new ComputeBuffer(maxTriangles, 40, ComputeBufferType.Append);
-                    countBuffer = new ComputeBuffer(1, sizeof(int), ComputeBufferType.IndirectArguments);
+
+                    // Create a buffer for 4 integers (16 bytes)
+                    countBuffer = new ComputeBuffer(1, 4 * sizeof(int), ComputeBufferType.IndirectArguments);
+
+                    // Tell it to draw 3 vertices per instance. We will copy the number of instances later!
+                    countBuffer.SetData(new int[] { 3, 0, 0, 0 });
                 }
 
                 triangleBuffer.SetCounterValue(0); // Reset the append counter
@@ -296,14 +300,12 @@ public class HoloportReceiver : MonoBehaviour
     {
         if (triangleBuffer != null && renderMaterial != null)
         {
-            // Link the GPU triangle buffer to your rendering material
             renderMaterial.SetPass(0);
             renderMaterial.SetBuffer("TriangleBuffer", triangleBuffer);
 
-            // Copy the exact number of triangles generated into our count buffer
-            ComputeBuffer.CopyCount(triangleBuffer, countBuffer, 0);
+            // Shift the copy offset by 4 bytes so it writes into the 'InstanceCount' slot
+            ComputeBuffer.CopyCount(triangleBuffer, countBuffer, 4);
 
-            // Draw the triangles without bringing them back to the CPU!
             Graphics.DrawProceduralIndirectNow(MeshTopology.Triangles, countBuffer, 0);
         }
     }

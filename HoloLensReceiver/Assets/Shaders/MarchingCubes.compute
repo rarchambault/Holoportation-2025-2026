@@ -67,7 +67,8 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     
     // Convert world position into grid coordinates
     // We add 0.15f to shift negative values (range is -0.15 to +0.15) into positive grid space (0 to 0.3)
-    float3 gridPos = (pos + 0.15f) * (GridResolution / 0.3f);
+    float3 offset = float3(0.15f, 0.15f, 0.0f);
+    float3 gridPos = (pos + offset) * (GridResolution / 0.3f);
     int3 voxelCoords = (int3) gridPos;
 
     // Safety bounds check

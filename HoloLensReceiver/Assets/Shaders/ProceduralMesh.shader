@@ -36,30 +36,24 @@ Shader "Custom/ProceduralMarchingCubes"
             };
 
             // The Vertex Shader runs once for every single vertex in the TriangleBuffer
-            v2f vert (uint vertexID : SV_VertexID)
+            v2f vert (uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
             {
                 v2f o;
-                
-                // 1 Triangle = 3 Vertices. Find which triangle and which point we are on.
-                int triIndex = vertexID / 3;
-                int vertIndex = vertexID % 3;
-                
-                Triangle tri = TriangleBuffer[triIndex];
-                
+    
+                Triangle tri = TriangleBuffer[instanceID];
+    
                 float3 vPos;
-                if (vertIndex == 0) vPos = tri.vertexA;
-                else if (vertIndex == 1) vPos = tri.vertexB;
+                if (vertexID == 0) vPos = tri.vertexA;
+                else if (vertexID == 1) vPos = tri.vertexB;
                 else vPos = tri.vertexC;
 
-                // Transform from World space to Screen space
                 o.pos = UnityObjectToClipPos(float4(vPos, 1.0));
-                
-                // Calculate face normal for basic lighting (Cross product of edges)
+    
                 float3 edge1 = tri.vertexB - tri.vertexA;
                 float3 edge2 = tri.vertexC - tri.vertexA;
                 o.worldNormal = normalize(cross(edge1, edge2));
 
-                o.color = tri.color; // Pass the point cloud color to the fragment shader
+                o.color = tri.color; 
                 return o;
             }
 

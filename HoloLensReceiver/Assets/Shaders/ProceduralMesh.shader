@@ -39,7 +39,6 @@ Shader "Custom/ProceduralMarchingCubes"
             v2f vert (uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
             {
                 v2f o;
-    
                 Triangle tri = TriangleBuffer[instanceID];
     
                 float3 vPos;
@@ -47,6 +46,10 @@ Shader "Custom/ProceduralMarchingCubes"
                 else if (vertexID == 1) vPos = tri.vertexB;
                 else vPos = tri.vertexC;
 
+                // Multiply by 10 just to make it MASSIVE for testing
+                vPos = vPos * 10.0; 
+
+                // Transform from World to Clip space
                 o.pos = UnityObjectToClipPos(float4(vPos, 1.0));
     
                 float3 edge1 = tri.vertexB - tri.vertexA;

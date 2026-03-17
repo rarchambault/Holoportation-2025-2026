@@ -143,6 +143,18 @@ public class HoloportReceiver : MonoBehaviour
                 documentConnectionTimer = 0.0f;
             }
         }
+        if (triangleBuffer != null && renderMaterial != null && countBuffer != null)
+        {
+            // Define a massive bounding box so Unity NEVER culls the mesh
+            Bounds massiveBounds = new Bounds(Vector3.zero, new Vector3(100, 100, 100));
+
+            // Shift the copy offset by 4 bytes (so it writes to InstanceCount)
+            ComputeBuffer.CopyCount(triangleBuffer, countBuffer, 4);
+
+            // Draw it directly!
+            Graphics.DrawProceduralIndirect(renderMaterial, massiveBounds, MeshTopology.Triangles, countBuffer, 0, null, null, UnityEngine.Rendering.ShadowCastingMode.On, true, gameObject.layer);
+        }
+
     }
 
     private async void ConnectPointCloudClient()
@@ -304,21 +316,6 @@ public class HoloportReceiver : MonoBehaviour
                     gameObject.GetComponent<MeshRenderer>().enabled = false;
                 }
             }
-        }
-    }
-
-    private void OnRenderObject()
-    {
-        Debug.Log("OnRenderObject is running!");
-        if (triangleBuffer != null && renderMaterial != null)
-        {
-            renderMaterial.SetPass(0);
-            renderMaterial.SetBuffer("TriangleBuffer", triangleBuffer);
-
-            // Shift the copy offset by 4 bytes so it writes into the 'InstanceCount' slot
-            ComputeBuffer.CopyCount(triangleBuffer, countBuffer, 4);
-
-            Graphics.DrawProceduralIndirectNow(MeshTopology.Triangles, countBuffer, 0);
         }
     }
 

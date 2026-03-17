@@ -280,6 +280,17 @@ public class HoloportReceiver : MonoBehaviour
                 marchingCubesShader.SetInt("GridResolution", gridResolution);
 
                 marchingCubesShader.Dispatch(marchKernel, gridResolution / 8, gridResolution / 8, gridResolution / 8);
+
+                // --- DEBUG LOGGING ---
+                // 1. Copy the append count into our argument buffer (offset by 4 bytes to hit the InstanceCount slot)
+                ComputeBuffer.CopyCount(triangleBuffer, countBuffer, 4);
+
+                // 2. Pull that buffer back to the CPU
+                int[] debugArgs = new int[4];
+                countBuffer.GetData(debugArgs);
+
+                // 3. Print the result! (debugArgs[1] is the InstanceCount)
+                Debug.Log($"GPU generated {debugArgs[1]} triangles from {numPoints} points.");
             }
             catch (Exception)
             {
@@ -298,6 +309,7 @@ public class HoloportReceiver : MonoBehaviour
 
     private void OnRenderObject()
     {
+        Debug.Log("OnRenderObject is running!");
         if (triangleBuffer != null && renderMaterial != null)
         {
             renderMaterial.SetPass(0);

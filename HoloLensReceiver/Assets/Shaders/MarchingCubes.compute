@@ -136,7 +136,7 @@ void CSMarch(uint3 id : SV_DispatchThreadID)
     for (int i = 0; i < 8; i++)
     {
         // Convert grid coordinates back to world coordinates
-        cubePositions[i] = ((float3(id) + cornerOffsets[i]) * scale) - 0.15f;
+        cubePositions[i] = ((float3(id) + cornerOffsets[i]) * scale) - float3(0.15f, 0.15f, 0.0f);
     }
 
     // 4. Interpolate the vertices where the surface intersects the edges

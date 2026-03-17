@@ -67,7 +67,8 @@ public class HoloportReceiver : MonoBehaviour
         public Vector3 vertexC;
         public Vector3 vertexB;
         public Vector3 vertexA;
-        public Color32 color;
+        public Vector3 padding;
+        public Vector4 color;
     }
 
 
@@ -240,7 +241,7 @@ public class HoloportReceiver : MonoBehaviour
                     positionBuffer?.Release();
                     colorBuffer?.Release();
                     positionBuffer = new ComputeBuffer(numPoints, sizeof(float) * 3);
-                    colorBuffer = new ComputeBuffer(numPoints, sizeof(byte) * 4);
+                    colorBuffer = new ComputeBuffer(numPoints, sizeof(uint));
                 }
 
                 // 2. Upload data to GPU
@@ -279,12 +280,8 @@ public class HoloportReceiver : MonoBehaviour
                 int maxTriangles = gridResolution * gridResolution * gridResolution * 5;
                 if (triangleBuffer == null)
                 {
-                    triangleBuffer = new ComputeBuffer(maxTriangles, 40, ComputeBufferType.Append);
-
-                    // Create a buffer for 4 integers (16 bytes)
+                    triangleBuffer = new ComputeBuffer(maxTriangles, 64, ComputeBufferType.Append);
                     countBuffer = new ComputeBuffer(1, 4 * sizeof(int), ComputeBufferType.IndirectArguments);
-
-                    // Tell it to draw 3 vertices per instance. We will copy the number of instances later!
                     countBuffer.SetData(new int[] { 3, 0, 0, 0 });
                 }
 

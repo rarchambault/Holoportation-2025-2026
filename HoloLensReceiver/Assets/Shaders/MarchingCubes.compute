@@ -6,7 +6,7 @@
 
 // --- Variables ---
 StructuredBuffer<float3> PositionBuffer;
-StructuredBuffer<float4> ColorBuffer;
+StructuredBuffer<uint> ColorBuffer;
 int NumPoints;
 int GridResolution;
 
@@ -18,6 +18,7 @@ struct Triangle
     float3 vertexC;
     float3 vertexB;
     float3 vertexA;
+    float3 padding;
     float4 color;
 };
 

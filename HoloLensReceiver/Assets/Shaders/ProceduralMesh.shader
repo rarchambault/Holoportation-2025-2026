@@ -21,6 +21,7 @@ Shader "Custom/ProceduralMarchingCubes"
                 float3 vertexC;
                 float3 vertexB;
                 float3 vertexA;
+                float3 padding;
                 float4 color; // Use float4 for colors in shaders
             };
 
@@ -50,7 +51,7 @@ Shader "Custom/ProceduralMarchingCubes"
                 vPos = vPos * 10.0; 
 
                 // Transform from World to Clip space
-                o.pos = UnityObjectToClipPos(float4(vPos, 1.0));
+                o.pos = mul(UNITY_MATRIX_VP, float4(vPos, 1.0));
     
                 float3 edge1 = tri.vertexB - tri.vertexA;
                 float3 edge2 = tri.vertexC - tri.vertexA;

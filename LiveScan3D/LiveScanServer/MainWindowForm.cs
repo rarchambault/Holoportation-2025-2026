@@ -317,9 +317,20 @@ namespace LiveScanServer
 
                         if (camMeshIndices != null)
                         {
-                            foreach (var idx in camMeshIndices)
+                            // Guard against stale mesh indices from a different frame than the vertices.
+                            // This can occur when GetLatestFrame and GetMeshIndices read from different
+                            // C++ frames due to a race with the processing thread (frame N verts, frame N+1 indices).
+                            for (int t = 0; t + 2 < camMeshIndices.Count; t += 3)
                             {
-                                meshIndices.Add(idx + vertexOffset);
+                                int a = camMeshIndices[t];
+                                int b = camMeshIndices[t + 1];
+                                int c = camMeshIndices[t + 2];
+                                if (a < camVertexCount && b < camVertexCount && c < camVertexCount)
+                                {
+                                    meshIndices.Add(a + vertexOffset);
+                                    meshIndices.Add(b + vertexOffset);
+                                    meshIndices.Add(c + vertexOffset);
+                                }
                             }
                         }
 

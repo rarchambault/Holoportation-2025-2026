@@ -98,7 +98,38 @@ public class StreamingMeshRenderer : MonoBehaviour
 
         mesh.SetVertices(vertices);
         mesh.SetColors(colors);
-        mesh.SetTriangles(triangles, 0);
+
+        // Guard: drop any triangle that references an out-of-bounds vertex.
+        // This can happen when vertices and indices arrive from different frames
+        // due to a race condition on the server side (frame N vertices + frame N+1 indices).
+        int vc = vertices.Length;
+        bool anyBad = false;
+        for (int i = 0; i + 2 < triangles.Length; i += 3)
+        {
+            if (triangles[i] >= vc || triangles[i + 1] >= vc || triangles[i + 2] >= vc)
+            {
+                anyBad = true;
+                break;
+            }
+        }
+
+        int[] safeTriangles = triangles;
+        if (anyBad)
+        {
+            var safe = new System.Collections.Generic.List<int>(triangles.Length);
+            for (int i = 0; i + 2 < triangles.Length; i += 3)
+            {
+                if (triangles[i] < vc && triangles[i + 1] < vc && triangles[i + 2] < vc)
+                {
+                    safe.Add(triangles[i]);
+                    safe.Add(triangles[i + 1]);
+                    safe.Add(triangles[i + 2]);
+                }
+            }
+            safeTriangles = safe.ToArray();
+        }
+
+        mesh.SetTriangles(safeTriangles, 0);
 
         mesh.RecalculateBounds();
 

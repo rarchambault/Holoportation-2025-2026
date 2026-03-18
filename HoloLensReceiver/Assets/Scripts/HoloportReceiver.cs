@@ -95,10 +95,10 @@ public class HoloportReceiver : MonoBehaviour
         documentRenderer = GetComponent<DocumentRenderer>();
 
         // 1. Create the 3D Density Grid
-        densityGrid = new RenderTexture(gridResolution, gridResolution, 0, RenderTextureFormat.RFloat);
+        densityGrid = new RenderTexture(gridResolution, gridResolution, 0, RenderTextureFormat.ARGBHalf);
         densityGrid.dimension = UnityEngine.Rendering.TextureDimension.Tex3D;
         densityGrid.volumeDepth = gridResolution;
-        densityGrid.enableRandomWrite = true; // Crucial for Compute Shaders
+        densityGrid.enableRandomWrite = true;
         densityGrid.Create();
 
         // 2. Clear the grid to 0 using the shader (we'll add a Clear kernel to the HLSL next)

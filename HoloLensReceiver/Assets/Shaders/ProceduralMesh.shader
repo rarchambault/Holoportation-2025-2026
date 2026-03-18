@@ -2,12 +2,12 @@ Shader "Custom/ProceduralMarchingCubes"
 {
     Properties
     {
-        _Color ("Main Color", Color) = (1,1,1,1)
+        _Color ("Main Color Multiplier", Color) = (1,1,1,1)
     }
     SubShader
     {
         Tags { "RenderType"="Opaque" }
-        Cull Off // Double-sided rendering to avoid invisible backfaces
+        Cull Off 
 
         Pass
         {
@@ -16,16 +16,14 @@ Shader "Custom/ProceduralMarchingCubes"
             #pragma fragment frag
             #include "UnityCG.cginc"
 
-            // Must match the struct in your C# and Compute Shader
             struct Triangle {
-                float3 vertexC;
-                float3 vertexB;
                 float3 vertexA;
+                float3 vertexB;
+                float3 vertexC;
                 float3 padding;
-                float4 color; // Use float4 for colors in shaders
+                float4 color;
             };
 
-            // The buffer passed from C#
             StructuredBuffer<Triangle> TriangleBuffer;
             float4 _Color;
 
@@ -36,7 +34,6 @@ Shader "Custom/ProceduralMarchingCubes"
                 float4 color : COLOR;
             };
 
-            // The Vertex Shader runs once for every single vertex in the TriangleBuffer
             v2f vert (uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
             {
                 v2f o;
@@ -47,10 +44,7 @@ Shader "Custom/ProceduralMarchingCubes"
                 else if (vertexID == 1) vPos = tri.vertexB;
                 else vPos = tri.vertexC;
 
-                // Multiply by 10 just to make it MASSIVE for testing
-                vPos = vPos * 10.0; 
-
-                // Transform from World to Clip space
+                // Removed the *10.0 scale for final render
                 o.pos = mul(UNITY_MATRIX_VP, float4(vPos, 1.0));
     
                 float3 edge1 = tri.vertexB - tri.vertexA;
@@ -61,14 +55,12 @@ Shader "Custom/ProceduralMarchingCubes"
                 return o;
             }
 
-            // The Fragment Shader runs for every pixel on the screen that the triangle covers
             fixed4 frag (v2f i) : SV_Target
             {
-                // Basic directional lighting so the mesh doesn't look completely flat
                 float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
-                float NdotL = max(0.1, dot(i.worldNormal, lightDir)); // 0.1 is ambient light
+                float NdotL = max(0.3, dot(i.worldNormal, lightDir)); // 0.3 ambient
                 
-                // Multiply the struct color by the lighting
+                // Final color is the point cloud color * lighting * inspector multiplier
                 return i.color * NdotL * _Color;
             }
             ENDCG

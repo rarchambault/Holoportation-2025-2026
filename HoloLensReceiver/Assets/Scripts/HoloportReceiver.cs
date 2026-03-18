@@ -36,7 +36,7 @@ public class HoloportReceiver : MonoBehaviour
     {
         meshRenderer = GetComponent<StreamingMeshRenderer>();
         documentRenderer = GetComponent<DocumentRenderer>();
-        pointCloudRenderer = GetComponentInChildren<PointCloudRenderer>();
+        //pointCloudRenderer = GetComponentInChildren<PointCloudRenderer>();
     }
 
     private void Update()
@@ -174,10 +174,11 @@ public class HoloportReceiver : MonoBehaviour
                     meshRenderer.EnqueueMesh(vertices, colors, meshIndices);
                 }
 
+                /*
                 if (pointCloudRenderer != null)
                 {
                     pointCloudRenderer.EnqueuePointCloud(scale, vertices, colors);
-                }
+                }*/
             }
             catch (Exception e)
             {

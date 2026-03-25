@@ -140,9 +140,6 @@ PlayerSettings:
   - {fileID: 0}
   - {fileID: 0}
   - {fileID: 0}
-  - {fileID: 8937291484531715936, guid: 20011aca962ea3a4b9b3daa31867f666, type: 2}
-  - {fileID: 11400000, guid: 06d184b58e3c7464c82d7357b4d9dfe7, type: 2}
-  - {fileID: 2776573167919853703, guid: 68eecdc4c41330d4ab768cc9b2a113ab, type: 2}
   metroInputSource: 0
   wsaTransparentSwapchain: 0
   m_HolographicPauseOnTrackingLoss: 1
@@ -687,10 +684,10 @@ PlayerSettings:
   metroPackageName: HoloLensReceiver
   metroPackageVersion: 1.0.0.0
   metroCertificatePath: Assets/WSATestCertificate.pfx
-  metroCertificatePassword: 
+  metroCertificatePassword: ===
   metroCertificateSubject: DefaultCompany
   metroCertificateIssuer: DefaultCompany
-  metroCertificateNotAfter: 808f89bb5a45dc01
+  metroCertificateNotAfter: 006732abf6dadd01
   metroApplicationDescription: HoloLensReceiver
   wsaImages: {}
   metroTileShortName: HoloLensReceiever-2022

@@ -30,7 +30,6 @@ Shader "Custom/ProceduralMarchingCubes"
             struct v2f
             {
                 float4 pos : SV_POSITION;
-                float3 worldNormal : TEXCOORD0;
                 float4 color : COLOR;
             };
 
@@ -47,21 +46,13 @@ Shader "Custom/ProceduralMarchingCubes"
                 // Removed the *10.0 scale for final render
                 o.pos = mul(UNITY_MATRIX_VP, float4(vPos, 1.0));
     
-                float3 edge1 = tri.vertexB - tri.vertexA;
-                float3 edge2 = tri.vertexC - tri.vertexA;
-                o.worldNormal = normalize(cross(edge1, edge2));
-
-                o.color = tri.color; 
+                o.color = tri.color;
                 return o;
             }
 
             fixed4 frag (v2f i) : SV_Target
             {
-                float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
-                float NdotL = max(0.3, dot(i.worldNormal, lightDir)); // 0.3 ambient
-                
-                // Final color is the point cloud color * lighting * inspector multiplier
-                return i.color * NdotL * _Color;
+                return i.color * _Color;
             }
             ENDCG
         }

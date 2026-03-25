@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
-  m_IndirectSpecularColor: {r: 0.37311953, g: 0.38074014, b: 0.3587274, a: 1}
+  m_IndirectSpecularColor: {r: 0.37311918, g: 0.3807398, b: 0.35872716, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -169,7 +169,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   HoloportPrefab: {fileID: 1002025039999346, guid: 85f47f5c27a9a5f44a7986be888ad424, type: 3}
   DefaultServerIPAddresses:
-  - 127.0.0.1
+  - 10.69.55.145
 --- !u!1 &683017650
 GameObject:
   m_ObjectHideFlags: 0

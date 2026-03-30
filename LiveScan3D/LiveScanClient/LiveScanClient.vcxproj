@@ -197,7 +197,7 @@ pcl_ml.lib;pcl_surface.lib;pcl_visualization.lib;
 flann_cpp_s.lib;flann_s.lib;
 %(AdditionalDependencies)
 </AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(SolutionDir)lib;$(SolutionDir)lib\Orbbec;$(SolutionDir)lib\OpenCV;$(SolutionDir)lib\pcl;$(SolutionDir)lib\boost;$(SolutionDir)lib\flann;</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(SolutionDir)lib;$(SolutionDir)lib\Orbbec;$(SolutionDir)lib\OpenCV;$(SolutionDir)lib\pcl;$(SolutionDir)lib\boost;$(SolutionDir)lib\flann;$(SolutionDir)lib\ONNXRuntime;</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

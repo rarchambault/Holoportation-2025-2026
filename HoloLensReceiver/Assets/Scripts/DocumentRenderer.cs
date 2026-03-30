@@ -12,11 +12,16 @@ This module renders document images on a plane renderer.
 
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
+using System.IO;
 
 public class DocumentRenderer : MonoBehaviour
 {
-    public float MaxImageSize = 3.0f;
-    public float MinImageSize = 2.0f;
+    private int debugSaveCount = 0;
+    private RawImage DebugRawImage;
+    public float MaxImageSize = 1.1f;  // 80 cm
+    public float MinImageSize = 0.4f;  // 20 cm
+    
     public Renderer TargetRenderer;
 
     private const float ImageTimeout = 30.0f;
@@ -86,31 +91,88 @@ public class DocumentRenderer : MonoBehaviour
 
     public void UpdateMesh(short width, short height, byte[] data)
     {
-        if (data == null || data.Length == 0)
+        if (data == null || data.Length != width * height * 3)
         {
+            Debug.LogWarning($"Invalid document data. width={width}, height={height}, bytes={(data == null ? 0 : data.Length)}");
             return;
         }
 
-        // Load the received image into a 2D Texture
-        Texture2D texture = new Texture2D(2, 2, TextureFormat.RGB24, false, true);
+        Debug.Log($"Received document with width {width} and height {height}, size {data.Length}");
 
-        if (texture.LoadImage(data))
+        byte[] correctedData = ImageCorrection(width, height, data);
+
+        Texture2D texture = new Texture2D(
+            width,
+            height,
+            TextureFormat.RGB24,
+            mipChain: false,
+            linear: false
+        );
+
+        texture.LoadRawTextureData(correctedData);
+        texture.filterMode = FilterMode.Point;
+        texture.wrapMode = TextureWrapMode.Clamp;
+        texture.anisoLevel = 1;
+        texture.Apply(false, false);
+
+        // Show on the 3D plane as before
+        TargetRenderer.material.mainTexture = texture;
+        TargetRenderer.material.color = Color.white;
+        Debug.Log("Runtime material name: " + TargetRenderer.material.name);
+        Debug.Log("Runtime shader: " + TargetRenderer.material.shader.name);
+        TargetRenderer.enabled = true;
+
+        // ALSO show directly in UI for comparison
+        if (DebugRawImage != null)
         {
-            texture.Apply();
+            DebugRawImage.texture = texture;
+            DebugRawImage.color = Color.white;
 
-            // Apply the texture on the renderer
-            TargetRenderer.material.mainTexture = texture;
-            TargetRenderer.enabled = true;
+            // Keep aspect ratio
+            RectTransform rt = DebugRawImage.rectTransform;
+            float aspect = (float)width / height;
+            float maxWidth = 1000f;
+            float maxHeight = 700f;
 
-            // Scale the renderer to match the aspect ratio
-            AdjustRendererScale(width, height);
+            float uiWidth = maxWidth;
+            float uiHeight = uiWidth / aspect;
 
-            timeSinceLastRender = 0.0f;
+            if (uiHeight > maxHeight)
+            {
+                uiHeight = maxHeight;
+                uiWidth = uiHeight * aspect;
+            }
+
+            rt.sizeDelta = new Vector2(uiWidth, uiHeight);
         }
-        else
+
+        AdjustRendererScale(width, height);
+        timeSinceLastRender = 0.0f;
+    }
+
+    private byte[] ImageCorrection(int width, int height, byte[] src)
+    {
+        byte[] dst = new byte[src.Length];
+
+        for (int y = 0; y < height; y++)
         {
-            Debug.LogError("Failed to load image data into texture");
+            for (int x = 0; x < width; x++)
+            {
+                int srcIndex = (y * width + x) * 3;
+
+                // Vertical flip only
+                int dstX = x;
+                int dstY = height - 1 - y;
+                int dstIndex = (dstY * width + dstX) * 3;
+
+                // BGR -> RGB
+                dst[dstIndex + 0] = src[srcIndex + 2]; // R
+                dst[dstIndex + 1] = src[srcIndex + 1]; // G
+                dst[dstIndex + 2] = src[srcIndex + 0]; // B
+            }
         }
+
+        return dst;
     }
 
     private void AdjustRendererScale(short width, short height)

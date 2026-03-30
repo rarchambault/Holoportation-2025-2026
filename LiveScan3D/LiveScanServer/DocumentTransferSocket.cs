@@ -34,26 +34,22 @@ namespace LiveScanServer
             try
             {
                 if (data == null || data.Count == 0 || width == 0 || height == 0)
-                {
                     return;
-                }
 
-                // Encode document data
-                byte[] dataArray = EncodeToJpeg(data.ToArray(), width, height);
+                byte[] dataArray = data.ToArray();
 
-                if (dataArray == null || dataArray.Length == 0)
-                {
+                // Sanity check
+                if (dataArray.Length != width * height * 3)
                     return;
-                }
 
-                // Send width and height of document first
+                // Send dimensions
                 WriteShort(width);
                 WriteShort(height);
 
-                // Write data size
+                // Send raw byte size
                 WriteInt(dataArray.Length);
 
-                // Write actual data
+                // Send raw pixel data
                 socket.GetStream().Write(dataArray, 0, dataArray.Length);
             }
             catch (Exception)
@@ -61,60 +57,62 @@ namespace LiveScanServer
             }
         }
 
-        public static byte[] EncodeToJpeg(byte[] rawBgr, int width, int height, int quality = 90)
-        {
-            if (rawBgr == null || rawBgr.Length != width * height * 3 || width <= 0 || height <= 0)
-            {
-                // Invalid input for JPEG encoding
-                return null;
-            }
-
-            // Create Bitmap
-            using (Bitmap bmp = new Bitmap(width, height, PixelFormat.Format24bppRgb))
-            {
-                var rect = new Rectangle(0, 0, width, height);
-                var data = bmp.LockBits(rect, ImageLockMode.WriteOnly, bmp.PixelFormat);
-
-                try
+        /*
+                public static byte[] EncodeToJpeg(byte[] rawBgr, int width, int height, int quality = 90)
                 {
-                    // Copy raw pixels into Bitmap
-                    int srcStride = width * 3;
-                    int dstStride = Math.Abs(data.Stride);
-
-                    unsafe
+                    if (rawBgr == null || rawBgr.Length != width * height * 3 || width <= 0 || height <= 0)
                     {
-                        byte* dstRow = (byte*)data.Scan0;
-                        fixed (byte* pSrc = rawBgr)
+                        // Invalid input for JPEG encoding
+                        return null;
+                    }
+
+                    // Create Bitmap
+                    using (Bitmap bmp = new Bitmap(width, height, PixelFormat.Format24bppRgb))
+                    {
+                        var rect = new Rectangle(0, 0, width, height);
+                        var data = bmp.LockBits(rect, ImageLockMode.WriteOnly, bmp.PixelFormat);
+
+                        try
                         {
-                            byte* srcRow = pSrc;
-                            for (int y = 0; y < height; y++)
+                            // Copy raw pixels into Bitmap
+                            int srcStride = width * 3;
+                            int dstStride = Math.Abs(data.Stride);
+
+                            unsafe
                             {
-                                Buffer.MemoryCopy(srcRow, dstRow, dstStride, srcStride);
-                                srcRow += srcStride;
-                                dstRow += data.Stride; // includes padding
+                                byte* dstRow = (byte*)data.Scan0;
+                                fixed (byte* pSrc = rawBgr)
+                                {
+                                    byte* srcRow = pSrc;
+                                    for (int y = 0; y < height; y++)
+                                    {
+                                        Buffer.MemoryCopy(srcRow, dstRow, dstStride, srcStride);
+                                        srcRow += srcStride;
+                                        dstRow += data.Stride; // includes padding
+                                    }
+                                }
                             }
+                        }
+                        finally
+                        {
+                            // Unlock Bitmap bits
+                            bmp.UnlockBits(data);
+                        }
+
+                        // Save Bitmap as JPEG
+                        using (MemoryStream ms = new MemoryStream())
+                        {
+                            var encoder = ImageCodecInfo.GetImageEncoders().First(e => e.FormatID == ImageFormat.Jpeg.Guid);
+                            using (EncoderParameters eps = new EncoderParameters(1))
+                            {
+                                eps.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)quality);
+                                bmp.Save(ms, encoder, eps);
+                            }
+
+                            return ms.ToArray();
                         }
                     }
                 }
-                finally
-                {
-                    // Unlock Bitmap bits
-                    bmp.UnlockBits(data);
-                }
-
-                // Save Bitmap as JPEG
-                using (MemoryStream ms = new MemoryStream())
-                {
-                    var encoder = ImageCodecInfo.GetImageEncoders().First(e => e.FormatID == ImageFormat.Jpeg.Guid);
-                    using (EncoderParameters eps = new EncoderParameters(1))
-                    {
-                        eps.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)quality);
-                        bmp.Save(ms, encoder, eps);
-                    }
-
-                    return ms.ToArray();
-                }
-            }
-        }
+        */
     }
 }

@@ -194,7 +194,7 @@ pcl_common.lib;pcl_io.lib;pcl_io_ply.lib;
 pcl_search.lib;pcl_kdtree.lib;pcl_octree.lib;
 pcl_features.lib;pcl_filters.lib;pcl_sample_consensus.lib;
 pcl_ml.lib;pcl_surface.lib;pcl_visualization.lib;
-flann_cpp_s.lib;flann_s.lib;
+flann_cpp_s.lib;flann_s.lib;onnxruntime.lib;
 %(AdditionalDependencies)
 </AdditionalDependencies>
       <AdditionalLibraryDirectories>$(SolutionDir)lib;$(SolutionDir)lib\Orbbec;$(SolutionDir)lib\OpenCV;$(SolutionDir)lib\pcl;$(SolutionDir)lib\boost;$(SolutionDir)lib\flann;$(SolutionDir)lib\ONNXRuntime;</AdditionalLibraryDirectories>

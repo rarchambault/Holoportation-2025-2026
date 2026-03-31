@@ -48,6 +48,13 @@ public class HoloportReceiver : MonoBehaviour
     private bool isDocumentClientConnecting = false;
     private float documentConnectionTimer = 0.0f;
 
+    // FPS / performance tracking
+    private float _lastPointCloudFrameTime = -1f;
+    private float _smoothedPointCloudFps = 0f;
+
+    private float _lastDocumentFrameTime = -1f;
+    private float _smoothedDocumentFps = 0f;
+
     public ComputeShader marchingCubesShader;
     private ComputeBuffer positionBuffer;
     private ComputeBuffer colorBuffer;
@@ -209,8 +216,6 @@ public class HoloportReceiver : MonoBehaviour
                 // Read number of points (4 bytes)
                 int numPoints = await ReadIntAsync(pointCloudClient);
 
-                Debug.Log($"Received {numPoints} points with scale {scale}");
-
                 // Initialize arrays for vertices and colors data
                 int verticesSize = PointXYZDataSize * numPoints;
                 int colorsSize = PointRGBDataSize * numPoints;
@@ -293,16 +298,15 @@ public class HoloportReceiver : MonoBehaviour
 
                 marchingCubesShader.Dispatch(marchKernel, gridResolution / 8, gridResolution / 8, gridResolution / 8);
 
-                // --- DEBUG LOGGING ---
-                // 1. Copy the append count into our argument buffer (offset by 4 bytes to hit the InstanceCount slot)
-                ComputeBuffer.CopyCount(triangleBuffer, countBuffer, 4);
-
-                // 2. Pull that buffer back to the CPU
-                int[] debugArgs = new int[4];
-                countBuffer.GetData(debugArgs);
-
-                // 3. Print the result! (debugArgs[1] is the InstanceCount)
-                Debug.Log($"GPU generated {debugArgs[1]} triangles from {numPoints} points.");
+                // Network FPS tracking
+                float pcNow = Time.realtimeSinceStartup;
+                if (_lastPointCloudFrameTime > 0f)
+                {
+                    float delta = pcNow - _lastPointCloudFrameTime;
+                    _smoothedPointCloudFps = Mathf.Lerp(_smoothedPointCloudFps, 1.0f / delta, 0.1f);
+                }
+                _lastPointCloudFrameTime = pcNow;
+                Debug.Log($"FPS: {_smoothedPointCloudFps:F1}");
             }
             catch (Exception)
             {
@@ -333,7 +337,15 @@ public class HoloportReceiver : MonoBehaviour
 
                 int dataSize = await ReadIntAsync(documentClient);
 
-                Debug.Log($"Received document with width {width} and height {height}, size {dataSize}");
+                // Document detection performance tracking
+                float docNow = Time.realtimeSinceStartup;
+                if (_lastDocumentFrameTime > 0f)
+                {
+                    float delta = docNow - _lastDocumentFrameTime;
+                    _smoothedDocumentFps = Mathf.Lerp(_smoothedDocumentFps, 1.0f / delta, 0.2f);
+                }
+                _lastDocumentFrameTime = docNow;
+                Debug.Log($"[Document] Detection FPS: {_smoothedDocumentFps:F1} | Size: {width}x{height} | Bytes: {dataSize}");
 
                 // Initialize array for document data
                 byte[] dataBytes = new byte[dataSize];

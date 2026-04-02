@@ -687,10 +687,10 @@ PlayerSettings:
   metroPackageName: HoloLensReceiver
   metroPackageVersion: 1.0.0.0
   metroCertificatePath: Assets/WSATestCertificate.pfx
-  metroCertificatePassword: 
+  metroCertificatePassword: ===
   metroCertificateSubject: DefaultCompany
   metroCertificateIssuer: DefaultCompany
-  metroCertificateNotAfter: 808f89bb5a45dc01
+  metroCertificateNotAfter: 00984228ebe1dd01
   metroApplicationDescription: HoloLensReceiver
   wsaImages: {}
   metroTileShortName: HoloLensReceiever-2022

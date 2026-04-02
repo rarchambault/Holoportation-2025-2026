@@ -263,7 +263,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   HoloportPrefab: {fileID: 1002025039999346, guid: 85f47f5c27a9a5f44a7986be888ad424, type: 3}
   DefaultServerIPAddresses:
-  - 127.0.0.1
+  - 10.69.55.145
 --- !u!1 &683017650
 GameObject:
   m_ObjectHideFlags: 0

@@ -496,7 +496,7 @@ namespace LiveScanServer
             try
             {
                
-                string exePath = Path.Combine(Application.StartupPath, "dist/Calibration.exe");
+                string exePath = Path.Combine(Application.StartupPath, "dist/Multi_camera.exe");
 
                 if (!File.Exists(exePath))
                 {

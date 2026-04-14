@@ -574,6 +574,11 @@ namespace LiveScanServer
             statusBarTimer.Start();
         }
 
+        private void lClientListBox_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            // Reserved for future per-client interaction on selection change.
+        }
+
         // Updates the ListBox contaning the connected clients. Called by events in the CameraServer.
         private void UpdateListView(List<CameraClient> socketList)
         {

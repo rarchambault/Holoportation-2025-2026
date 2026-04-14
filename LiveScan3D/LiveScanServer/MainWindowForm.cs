@@ -120,7 +120,7 @@ namespace LiveScanServer
             // Make the window larger and resizable
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.Sizable;
-            this.ClientSize = new Size(1024, 640);   
+            this.ClientSize = new Size(500, 200);   
             this.MinimumSize = new Size(300, 200);   
 
 

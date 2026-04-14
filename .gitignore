@@ -23,7 +23,7 @@ desktop.ini
 # .NET Core
 # ==========
 [Ll]og/
-[Bb]in/
+#[Bb]in/
 [Oo]bj/
 [Tt]est[Rr]esult*/
 *.dbmdl

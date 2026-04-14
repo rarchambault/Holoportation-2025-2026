@@ -690,7 +690,7 @@ PlayerSettings:
   metroCertificatePassword: ===
   metroCertificateSubject: DefaultCompany
   metroCertificateIssuer: DefaultCompany
-  metroCertificateNotAfter: 8067614ca6dfdd01
+  metroCertificateNotAfter: 009bb8b850ebdd01
   metroApplicationDescription: HoloLensReceiver
   wsaImages: {}
   metroTileShortName: HoloLensReceiever-2022
